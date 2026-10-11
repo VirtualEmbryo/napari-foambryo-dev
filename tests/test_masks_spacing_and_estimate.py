@@ -92,3 +92,7 @@ def test_the_memory_guard_needs_run_anyway_only_beyond_the_machine():
     red = memory_verdict(estimate, 32 * GIB, 30 * GIB)
     assert red.level == "red" and red.needs_run_anyway and "foambryo mesh" in red.message
     assert "min" in estimate.text() and "GiB" in estimate.text()
+
+
+def test_a_tiny_estimate_does_not_read_zero_seconds():
+    assert "0 s" not in estimate_reconstruction((10, 10, 10), (1.0, 1.0, 1.0)).text()

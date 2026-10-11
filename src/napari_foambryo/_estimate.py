@@ -104,6 +104,8 @@ def memory_verdict(estimate: CostEstimate, total_bytes: int, available_bytes: in
 
 
 def _duration(seconds: float) -> str:
+    if seconds < 1:
+        return "under 1 s"
     if seconds < 90:
         return f"{seconds:.0f} s"
     if seconds < 5400:
