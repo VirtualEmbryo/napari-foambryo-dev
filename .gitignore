@@ -1,0 +1,17 @@
+*egg-info/
+.venv/
+.ruff_cache/
+.ty_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+dist/
+build/
+.ipynb_checkpoints/
+__pycache__/
+imgui.ini
+.polyscope.ini
+scratch_*.py
+*_scratch.py
+# Default output folder of the plugin's examples: never committed, and never the workspace root.
+outputs/
