@@ -92,8 +92,16 @@ class Session:
         self.out_of_date.emit(run_id)
 
 
+def _unwrapped(viewer: Any) -> Any:  # noqa: ANN401
+    """The viewer itself: napari hands each plugin widget its own proxy (`PublicOnlyProxy`) around it."""
+    while hasattr(viewer, "__wrapped__"):
+        viewer = viewer.__wrapped__
+    return viewer
+
+
 def session_for(viewer: Any) -> Session:  # noqa: ANN401
-    """The session of a viewer (created on first use)."""
+    """The session of a viewer (created on first use), the same for every proxy of that viewer."""
+    viewer = _unwrapped(viewer)
     key = id(viewer)
     session = _SESSIONS.get(key)
     if session is None or session.viewer is not viewer:

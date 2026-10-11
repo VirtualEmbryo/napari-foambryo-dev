@@ -32,7 +32,12 @@ def viewer():
 
 @pytest.fixture
 def docks(qtbot, viewer):
-    widgets = (ReconstructWidget(viewer), InferWidget(viewer), ResultsWidget(viewer), ExportWidget(viewer))
+    from napari.utils._proxies import PublicOnlyProxy
+
+    # napari gives each plugin widget its own proxy of the viewer: the widgets must still share one session
+    widgets = tuple(
+        cls(PublicOnlyProxy(viewer)) for cls in (ReconstructWidget, InferWidget, ResultsWidget, ExportWidget)
+    )
     for widget in widgets:
         qtbot.addWidget(widget)
     return widgets

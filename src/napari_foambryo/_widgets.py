@@ -251,6 +251,9 @@ class ReconstructWidget(QWidget):
                 box.blockSignals(True)
                 box.setValue(value)
                 box.blockSignals(False)
+            self.unit_edit.blockSignals(True)
+            self.unit_edit.setText(choice.unit)
+            self.unit_edit.blockSignals(False)
         if choice.problem:
             _status(self.spacing_label, choice.problem, AMBER if choice.needs_confirmation else RED)
             self.estimate_label.clear()
@@ -351,9 +354,13 @@ class ReconstructWidget(QWidget):
             self.session.add(run, display)
             for name in add_mesh_layers(self.viewer, run, base_name, labels_for_display, choice.spacing):
                 display.layers.append(self.viewer.layers[name])
+            hidden = ""
+            if self.viewer.dims.ndisplay == 3 and labels_for_display.visible:
+                labels_for_display.visible = False  # in 3-D the labels' voxels hide the mesh
+                hidden = f" The labels layer '{labels_for_display.name}' is hidden (its voxels hide the mesh in 3-D)."
             self._finish(
                 f"{reconstruction.summary()} in {result.seconds:.1f} s, peak "
-                f"{result.peak_rss_bytes / 2**30:.2f} GiB. Next: Infer."
+                f"{result.peak_rss_bytes / 2**30:.2f} GiB.{hidden} Next: Infer."
             )
 
         def errored(error: BaseException) -> None:
@@ -408,6 +415,7 @@ class InferWidget(QWidget):
         self.session = session_for(napari_viewer)
         self._worker = None
         self.mesh_box = QComboBox()
+        self.mesh_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.tension_box = QComboBox()
         self.tension_box.addItems(list(tables.TENSION_METHODS))
         self.tension_box.setCurrentText(tables.option_name(_signature_default(infer_forces, "mode_tension")))
@@ -539,11 +547,14 @@ class InferWidget(QWidget):
                 layer = self.viewer.layers[name]
                 if layer not in display.layers:
                     display.layers.append(layer)
+            shown = _show_one_result(display.layers)
             self._worker = None
             colour = None if outcome.status == "complete" else (AMBER if outcome.tensions is not None else RED)
             text = f"{outcome.status} in {seconds:.1f} s"
             if outcome.error:
                 text += f": {outcome.error}"
+            if shown:
+                text += f". Shown: {shown}; the other result layers are hidden (tick their eye to show them)."
             _status(self.status, text, colour)
             self._mesh_changed()
             self.session.results_changed.emit(run.run_id)
@@ -554,6 +565,17 @@ class InferWidget(QWidget):
             self._mesh_changed()
 
         self._worker = _start_worker(infer_on_mesh, run.mesh, options, on_returned=returned, on_errored=errored)
+
+
+def _show_one_result(layers: list) -> str:
+    """Show the tensions layer and hide the cells and pressures (they share the geometry); returns what is shown."""
+    kinds = {layer.metadata.get("foambryo", {}).get("kind"): layer for layer in layers}
+    if "tensions" not in kinds:
+        return ""
+    for kind, layer in kinds.items():
+        if kind in ("cells", "pressures", "tensions"):
+            layer.visible = kind == "tensions"
+    return kinds["tensions"].name
 
 
 # ---------------------------------------------------------------------------------------------
@@ -729,6 +751,7 @@ class ResultsWidget(QWidget):
         if not rows:
             highlight(self.viewer, layer, None)
             return
+        self._show_only(layer)
         a = int(self.interfaces.item(rows[0].row(), 0).data(Qt.ItemDataRole.DisplayRole))
         b = int(self.interfaces.item(rows[0].row(), 1).data(Qt.ItemDataRole.DisplayRole))
         keys = layer.metadata["foambryo"]["interfaces"]
@@ -743,7 +766,14 @@ class ResultsWidget(QWidget):
         if not rows:
             highlight(self.viewer, layer, None)
             return
+        self._show_only(layer)
         highlight(self.viewer, layer, int(self.cells.item(rows[0].row(), 0).data(Qt.ItemDataRole.DisplayRole)))
+
+    def _show_only(self, layer: Any) -> None:  # noqa: ANN401
+        """Show `layer` and hide the run's other result layers (they share the geometry)."""
+        for other in self.session.displays[self.run_id].layers:
+            if other.metadata.get("foambryo", {}).get("kind") in ("cells", "tensions", "pressures"):
+                other.visible = other is layer
 
     def select_cell_row(self, label: int) -> None:
         """Select the row of cell `label` in the Cells tab (a click on the Labels layer does this)."""
