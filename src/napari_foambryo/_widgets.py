@@ -154,6 +154,12 @@ class ReconstructWidget(QWidget):
         self.report_label.setWordWrap(True)
         self._reports: dict[tuple, Any] = {}
         self._report_worker = None
+        self._watched_for_reports: set[int] = set()
+        self._generation: dict[str, int] = {}
+        self._report_timer = QTimer(self)
+        self._report_timer.setSingleShot(True)
+        self._report_timer.setInterval(600)
+        self._report_timer.timeout.connect(self.refresh)
         self.estimate_label.setWordWrap(True)
         self.run_anyway = QCheckBox("run anyway")
         self.run_button = QPushButton("Reconstruct")
@@ -389,6 +395,8 @@ class ReconstructWidget(QWidget):
             RUNS[run.run_id] = run
             display = RunDisplay(base_name, labels_for_display, choice.spacing)
             self.session.add(run, display)
+            if labels_for_display is not labels:  # a swapped copy: an edit of the original also makes it stale
+                self.session.watch(run.run_id, labels)
             for name in add_mesh_layers(self.viewer, run, base_name, labels_for_display, choice.spacing):
                 display.layers.append(self.viewer.layers[name])
             hidden = ""
@@ -427,6 +435,7 @@ class ReconstructWidget(QWidget):
         if labels is None:
             self.report_label.clear()
             return
+        self._watch_for_reports(labels)
         key = self._report_key(labels)
         if key in self._reports:
             self._show_report(key)
@@ -435,6 +444,7 @@ class ReconstructWidget(QWidget):
             return
         _status(self.report_label, "Mask report: counting…")
         data, multiscale, name, medium = labels.data, labels.multiscale, f"'{labels.name}'", self.medium_box.value()
+        generation = self._generation.get(labels.name, 0)
 
         def describe() -> Any:  # noqa: ANN401
             prepared = prepare_mask(data, multiscale=multiscale, name=name)
@@ -442,7 +452,8 @@ class ReconstructWidget(QWidget):
 
         def returned(report: Any) -> None:  # noqa: ANN401
             self._report_worker = None
-            self._reports[key] = report
+            if self._generation.get(key[0], 0) == generation:  # the labels did not change during the count
+                self._reports[key] = report
             self._request_report()
 
         def errored(error: BaseException) -> None:
@@ -450,6 +461,24 @@ class ReconstructWidget(QWidget):
             _status(self.report_label, f"Mask report: {error}", RED)
 
         self._report_worker = _start_worker(describe, on_returned=returned, on_errored=errored)
+
+    def _watch_for_reports(self, labels: Any) -> None:  # noqa: ANN401
+        """Count again when the labels change (replaced, painted, or refilled by another plugin)."""
+        if id(labels) in self._watched_for_reports:
+            return
+        self._watched_for_reports.add(id(labels))
+        name = labels.name
+
+        def changed(_event: Any = None) -> None:  # noqa: ANN401
+            for key in [k for k in self._reports if k[0] == name]:
+                del self._reports[key]
+            self._generation[name] = self._generation.get(name, 0) + 1  # a count already running is stale
+            self._report_timer.start()
+
+        for event_name in ("data", "paint", "labels_update", "set_data"):
+            emitter = getattr(labels.events, event_name, None)
+            if emitter is not None:
+                emitter.connect(changed)
 
     def _show_report(self, key: tuple) -> None:
         report = self._reports[key]

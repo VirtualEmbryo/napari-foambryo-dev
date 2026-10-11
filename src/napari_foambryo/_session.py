@@ -62,7 +62,7 @@ class Session:
         self.order.append(run.run_id)
         self.current = run.run_id
         if display.source_layer is not None:
-            self._watch(run.run_id, display.source_layer)
+            self.watch(run.run_id, display.source_layer)
         self.run_added.emit(run.run_id)
 
     def _remove_layers(self, display: RunDisplay) -> None:
@@ -71,7 +71,9 @@ class Session:
                 self.viewer.layers.remove(layer)
         display.layers.clear()
 
-    def _watch(self, run_id: str, layer: Any) -> None:  # noqa: ANN401
+    def watch(self, run_id: str, layer: Any) -> None:  # noqa: ANN401
+        """Mark the run out of date when `layer`'s data changes."""
+
         def mark(_event: Any = None) -> None:  # noqa: ANN401
             self.mark_out_of_date(run_id)
 

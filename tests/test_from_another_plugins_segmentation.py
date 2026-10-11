@@ -94,3 +94,44 @@ def test_another_plugins_labels_give_the_librarys_numbers(qtbot, tmp_path, anoth
         assert tuple(saved["spacing"]) == spacing
     record = json.loads((tmp_path / "exported" / "run.json").read_text())
     assert record["source_mask"]["medium_swapped"]
+
+
+def test_editing_the_original_segmentation_marks_a_swapped_run_out_of_date(qtbot, samples):
+    from napari.components import ViewerModel
+
+    foam, spacing = samples["cubic"]
+    viewer = ViewerModel()
+    labels = viewer.add_labels(np.where(foam == 0, 1, foam + 1).astype(np.uint16), name="seg", scale=spacing)
+    reconstruct, infer, export = (cls(viewer) for cls in (ReconstructWidget, InferWidget, ExportWidget))
+    for widget in (reconstruct, infer, export):
+        qtbot.addWidget(widget)
+    reconstruct.select_layer("seg")
+    reconstruct.medium_box.setValue(1)
+    reconstruct.start()
+    qtbot.waitUntil(lambda: reconstruct._worker is None, timeout=TIMEOUT_MS)
+    infer.start()
+    qtbot.waitUntil(lambda: infer._worker is None, timeout=TIMEOUT_MS)
+    data = labels.data.copy()
+    data[0, 0, 0] = 2
+    labels.data = data  # the original, not the swapped copy
+    assert RUNS[infer.session.current].out_of_date
+    assert not export.export_button.isEnabled()
+
+
+def test_the_mask_report_follows_the_labels(qtbot, samples):
+    from napari.components import ViewerModel
+
+    foam, spacing = samples["cubic"]
+    viewer = ViewerModel()
+    labels = viewer.add_labels(foam.copy(), name="seg", scale=spacing)
+    reconstruct = ReconstructWidget(viewer)
+    qtbot.addWidget(reconstruct)
+    reconstruct.select_layer("seg")
+    qtbot.waitUntil(lambda: "12 cells" in reconstruct.report_label.text(), timeout=TIMEOUT_MS)
+    data = labels.data.copy()
+    data[data == 3] = 0  # a cell removed, as a user's edit would
+    labels.data = data
+    qtbot.waitUntil(lambda: "11 cells" in reconstruct.report_label.text(), timeout=TIMEOUT_MS)
+    labels.data[labels.data == 4] = 0  # in place, as painting does
+    labels.events.paint(value=[])
+    qtbot.waitUntil(lambda: "10 cells" in reconstruct.report_label.text(), timeout=TIMEOUT_MS)
