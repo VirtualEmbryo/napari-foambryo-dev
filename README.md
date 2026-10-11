@@ -4,4 +4,115 @@ A napari plugin over delaunay-watershed-3d and foambryo: reconstruct the multima
 segmentation, infer its relative surface tensions and cell pressures, show them on the tissue, and export the
 same files as the `foambryo` command.
 
-In development; nothing is released yet. Licence: GPL-3.0-or-later.
+In development (0.1.0.dev0); nothing is released yet. Licence: GPL-3.0-or-later.
+
+![Tensions of benchmark case 000 in napari](docs/images/case_000_tensions.png)
+
+*Benchmark case 000 (6 cells): the tensions of its outer interfaces on the reconstructed mesh, the colour bars
+and the table, in which the true tensions of this simulated aggregate are shown beside the inferred ones.*
+
+## What it does
+
+* **Reconstruct**: a Labels layer, whoever made it (a file, napari's tools, another segmentation plugin), becomes a
+  multimaterial mesh by delaunay-watershed-3d's default reconstruction, the one `foambryo mesh` runs. The voxel
+  size comes from the layer, from another layer (the image that was segmented) or is typed: it is never guessed.
+  Before the run the dock shows the estimated time and memory, and a report of the mask (cells, cells touching
+  the image box, cells in several pieces, very small labels). The reconstruction runs in a separate process:
+  **Cancel** stops it at once and frees its memory.
+* **Infer**: the tensions, then the pressures, by foambryo's `infer_forces` with the options and defaults of
+  `foambryo infer`; or a **seed ensemble** (`infer_tensions_over_seeds`), whose spread over the seeds is a lower
+  bound on the error.
+* **Results**: the tensions and pressures on the mesh, coloured as foambryo's own viewer colours them, the colour
+  bars, and the tables. Select a row to see its interface or cell.
+* **Export**: `mesh.rec`, `tensions.csv`, `pressures.csv`, `colour_bars.png` and `run.json`, the files of the
+  `foambryo` command, with the command lines that reproduce them.
+
+**One code path.** The plugin computes nothing of its own: every number is one that a public function of
+foambryo returns for the same mask and options, the functions the `foambryo` command calls. The tests check this
+bit for bit, and check that the exported files are byte for byte those of the command.
+
+## Installation
+
+```bash
+pip install "napari[all]" napari-foambryo
+```
+
+napari-foambryo needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with it), and Python 3.11 or later.
+
+## Quickstart
+
+1. *File › Open Sample › foambryo › Benchmark case 000*.
+2. *Plugins › foambryo › Reconstruct*: the layer and its voxel size are chosen; click **Reconstruct**.
+3. *Plugins › foambryo › Infer*: click **Infer**. The tensions appear on the mesh.
+4. *Plugins › foambryo › Results*: the colour bars and the tables; case 000's true tensions are in the table.
+5. *Plugins › foambryo › Export*: choose a folder, click **Export**.
+
+The same, scripted: `python examples/quickstart.py`.
+
+![The quickstart, step by step](docs/images/walk_through_case_000.gif)
+
+## What the numbers mean
+
+* **Tensions** are relative: they are gauged to a mean of 1 (*Advanced › mean tension*). Interfaces with no
+  triple line are undetermined and reported as `nan` (grey).
+* **Pressures** are relative to the medium (label 0, *base pressure* 0), in units of tension per length of the
+  voxel size's unit.
+* **Cut cells**: where cells reach the image box, the mesh closes them with *crop faces* (grey, translucent); the
+  pressures of the cells they cut are `nan`. Only pressure methods with a formulation for crop faces are offered.
+* **Seed ensembles**: the seed standard deviation is a lower bound on the error, not an error bar.
+
+## Large tissues
+
+The estimate before a run is fitted to measured reconstructions (from a few seconds for a 6-cell aggregate to
+about 13 minutes and 39 GiB for a 1 866-cell tissue at cubic voxels); its range is that of the fit, not a
+guarantee. When the estimate exceeds the machine's memory, Reconstruct needs *run anyway* to be ticked: run
+`foambryo mesh` on a larger machine instead (same numbers) and open the `.rec` file here.
+
+## From a segmentation plugin to foambryo
+
+Segmentation plugins (Cellpose, PlantSeg, micro-sam, napari-segment-blobs-and-things-with-membranes, …) leave a
+Labels layer that often has no voxel size, and may label the background with something else than 0. In the
+Reconstruct dock:
+
+* **Voxel size from › layer: …** the image that was segmented (or *typed*);
+* **Medium is label …** the background's label: a copy of the layer with that label and 0 swapped is made and
+  reconstructed (and exported, since the equivalent command needs it);
+* read the **mask report**: a background split into several pieces shows up as extra cells touching the image
+  box. Merge them into the background with napari's fill tool, then Reconstruct.
+
+The results are marked *out of date* if the labels change after the reconstruction, and Export waits for a new
+one. Example: `python examples/from_a_segmentation_plugin.py`.
+
+![A membrane segmentation plugin's labels, with the mask report](docs/images/from_a_segmentation_plugin.png)
+
+## Reproducing a result without napari
+
+`run.json` lists the command lines that rebuild the exported folder, for example
+
+```bash
+foambryo mesh mask.npz -o mesh.rec --spacing 1.0 1.0 1.0 --spacing-unit voxel --min-distance 3
+```
+
+```bash
+foambryo infer mesh.rec -o . --tension-method young-dupre --pressure-method variational
+```
+
+(Tick *include the mask* in Export to get `mask.npz`.)
+
+## Credits, contact, citations
+
+If you use this tool, please cite the associated article: Ichbiah S., Delbary F., McDougall A., Dumollard R.,
+Turlier H. *Embryo mechanics cartography: inference of 3D force atlases from fluorescence microscopy.* Nature
+Methods **20**(12), 1989–1999 (2023), [doi:10.1038/s41592-023-02084-7](https://doi.org/10.1038/s41592-023-02084-7).
+Benchmark case 000, shipped as sample data with its true tensions, comes from that article's benchmark.
+
+Recent work on dw3d and foambryo is part of a collaboration with Alejandro Aguilera Castrejon
+(Janelia Research Campus, Howard Hughes Medical Institute). We thank him and his Janelia colleagues
+Adam L. Taylor, Wenhong Li and Francesco Roncato. Adam L. Taylor found the border-triangle winding
+defect fixed in 0.6.0 and pointed us to the seed-extraction and dense tension-solve bottlenecks on
+large tissues.
+
+## Licence
+
+GNU General Public License, version 3 or (at your option) any later version (`GPL-3.0-or-later`); the text is in
+`LICENSE`. The specification of the plugin is `docs/SPECIFICATION.md`.
