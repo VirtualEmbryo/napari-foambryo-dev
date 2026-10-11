@@ -1,0 +1,24 @@
+{
+ "generated foam, cut by the image box": {
+  "estimate": "Estimate: about 0 s (0 s\u20130 s) and 279 MiB (188 MiB\u2013414 MiB) (7e+05 voxels after resampling; the band is in-sample, not a guarantee). this machine has 128 GiB, 85 GiB free",
+  "spacing": "voxels 0.5 \u00d7 0.5 \u00d7 0.5 um (cubic), from this layer (the sample's metadata)",
+  "reconstruct": "586 points, 1392 triangles, 12 cells (8 cut by the image boundary) in 2.5 s, peak 0.23 GiB. The labels layer 'generated foam, cut by the image box' is hidden (its voxels hide the mesh in 3-D). Next: Infer.",
+  "mask_report": "Mask report (nothing is changed): 12 cells; 6 touch the image box (cut cells); 1 in several pieces; 0 pieces of medium enclosed by the tissue; 0 smaller than 5% of the median cell (1207.5 voxels). In several pieces: 1 (2).",
+  "infer": "complete in 0.1 s. Shown: generated foam, cut by the image box tensions; the other result layers are hidden (tick their eye to show them).",
+  "results": "46 interfaces, 13 materials; status complete",
+  "status": "complete",
+  "cut_cells": 8,
+  "undetermined_pressures": 8
+ },
+ "90-cell simulated tissue": {
+  "estimate": "Estimate: about 24 s (15 s\u201338 s) and 5 GiB (3 GiB\u20137 GiB) (4.2e+07 voxels after resampling; the band is in-sample, not a guarantee). this machine has 128 GiB, 86 GiB free",
+  "spacing": "voxels 1 \u00d7 1 \u00d7 1 voxel (cubic), from this layer (the sample's metadata)",
+  "reconstruct": "11203 points, 25433 triangles, 91 cells (0 cut by the image boundary) in 21.7 s, peak 4.15 GiB. The labels layer '90-cell simulated tissue' is hidden (its voxels hide the mesh in 3-D). Next: Infer.",
+  "mask_report": "Mask report (nothing is changed): 91 cells; 0 touch the image box (cut cells); 22 in several pieces; 0 pieces of medium enclosed by the tissue; 0 smaller than 5% of the median cell (3468.2 voxels). In several pieces: 31 (8), 33 (4), 40 (9), 45 (3), 49 (33)\u2026.",
+  "infer": "complete in 0.6 s. Shown: 90-cell simulated tissue tensions; the other result layers are hidden (tick their eye to show them).",
+  "results": "449 interfaces, 92 materials; status complete. True tensions known: median relative error 0.138 after matching the scale (factor 0.6442 = mean of true / mean of inferred, the benchmark's convention)",
+  "status": "complete",
+  "cut_cells": 0,
+  "undetermined_pressures": 0
+ }
+}

@@ -18,7 +18,7 @@ background. One interface (0–1, the lowest true tension) carries most of the d
 | repository | branch | commits | what |
 |---|---|---|---|
 | foambryo | `feature/public-helpers-for-front-ends` (on `feature/the-foambryo-command` 669a976) | ac8cd0c, 6daeebe, ce2125a, c274e54 | the command's helpers made public (decisions Q1, Q7, Q10, and the mask report); the command calls them |
-| napari-foambryo | `feature/first-version` (on `main` a90721f) | adcb9f4 … af46f00 (9 commits) | the plugin, its tests, README, examples, the specification |
+| napari-foambryo | `feature/first-version` (on `main` a90721f) | adcb9f4 … 7613194 (10 commits) | the plugin, its tests, README, examples, the specification |
 | napari-foambryo | `research/R124-napari-foambryo-plugin` | 7ba4a41 (specification version 1), e9f8183, cfded9a, 75501a8, and this record | the specification, the decision log, the scripts, results, figures, screenshots |
 
 delaunay-watershed-3d is unchanged (used at `master` 68eccf4).
@@ -32,7 +32,7 @@ delaunay-watershed-3d is unchanged (used at `master` 68eccf4).
 | the command's tests on the first three helper commits | unchanged and passing; the fourth commit changes one assertion (the mask report line of `foambryo mesh`) |
 | ruff, foambryo | 23 findings at 669a976, the same 23 at the helpers tip |
 | ty, foambryo (dw3d's `ty`, foambryo's venv) | 189 diagnostics at 669a976, 179 at the tip; the only new lines are three moved verbatim from `cli.py` to `results.py` |
-| napari-foambryo suite (tiers T1–T3, headless, Qt offscreen) | 86 passed, 0 skipped |
+| napari-foambryo suite (tiers T1–T3, headless, Qt offscreen) | 87 passed, 0 skipped (at 7613194) |
 | ruff, napari-foambryo | all checks passed; formatted |
 | gates G1–G11 | all passing (`docs/SPECIFICATION.md` § 8; table below) |
 | tier T4 (napari's `make_napari_viewer`, OpenGL) | not run as a test: no OpenGL in Qt's offscreen platform here. Replaced by real-window runs (below) |
@@ -63,9 +63,12 @@ delaunay-watershed-3d is unchanged (used at `master` 68eccf4).
   the image box" before Run. Variant A (as left): 11 cells, 5 of them fake cut cells, 3 595 points, peak 7.7 GiB;
   18 of 18 true interfaces found, median error 0.074, plus 23 interfaces with the fake cells. Variant B (pieces
   merged): 6 cells, 1 710 points, peak 1.4 GiB, median error 0.069. Screenshots 07–09.
-* **The cropped foam and a 90-cell simulated tissue at real cell size**: see `results/smoke_runs_on_a_cropped_
-  foam_and_a_90_cell_tissue.json` and screenshots 10–11 (run under the heavy-run lock; HANDOFF says whether it
-  ran).
+* **The cropped foam and a 90-cell simulated tissue at real cell size** (`results/smoke_runs_on_a_cropped_foam_
+  and_a_90_cell_tissue.json`, screenshots 10–11; under the heavy-run lock, held 40 s at 01:46 once R132 released it):
+  the cropped foam, 8 cut cells, their 8 pressures `nan`; the 90-cell tissue (342 × 351 × 350 voxels), 11 203
+  points, 25 433 triangles, 91 cells in 21.7 s, peak 4.15 GiB, against an estimate of 24 s (15–38) and 5 GiB (3–7);
+  449 interfaces, median relative tension error 0.138 against the true tensions restricted to the reference
+  mesh's interfaces (the library's single-seed figure at real cell size is 0.152, CHANGELOG).
 
 ## Findings
 

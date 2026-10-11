@@ -18,8 +18,8 @@ The guide is `scratch/napari-foambryo/TRY-IT.md` (five walks, what is not finish
   the one changed assertion). Not merged into the command's branch: it waits for the command's review, then is
   rebased and merged (decision Q1). c274e54 can be dropped alone.
 * **napari-foambryo** `feature/first-version`, on `main` (a90721f), worktree
-  `scratch/worktrees/napari-foambryo-first-version/napari-foambryo`: adcb9f4 … af46f00. `main` is to be
-  fast-forwarded by Hervé.
+  `scratch/worktrees/napari-foambryo-first-version/napari-foambryo`: adcb9f4 … 7613194. `main` is to be
+  fast-forwarded by Hervé (tip 7613194).
 * **napari-foambryo** `research/R124-napari-foambryo-plugin` (the shared checkout `napari-foambryo/`): the
   specification version 1, this record.
 * **delaunay-watershed-3d**: unchanged; a detached worktree at `master` 68eccf4
@@ -37,10 +37,11 @@ against the true mask, almost all on one interface (REPORT, Figure 1).
 
 ## Tests run, and not run
 
-Run: the foambryo suite at 669a976 and at the helpers tip; the plugin's suite (86, tiers T1–T3, gates G1–G11);
+Run: the foambryo suite at 669a976 and at the helpers tip; the plugin's suite (87, tiers T1–T3, gates G1–G11);
 ruff on both; `ty` on foambryo; the scanners; the real-window runs (REPORT). Not run: tier T4 as a test (no
 OpenGL under Qt's offscreen platform; the real-window runs stand in for it); delaunay-watershed-3d's suite (no
-change there); Python 3.11 and 3.13; napari other than 0.9.2; a 1 866-cell tissue.
+change there); Python 3.11 and 3.13; napari other than 0.9.2; a 1 866-cell tissue (the real-size
+smoke run was a 90-cell tissue, REPORT).
 
 ## Reproduction (zsh, from the workspace root)
 
