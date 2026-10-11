@@ -12,6 +12,7 @@ specification's principles (one code path, no default of its own, nothing silent
 | M2 specification version 1 | done | `research/R124-napari-foambryo-plugin` 7ba4a41 |
 | M1 checks | done | foambryo suite 927 passed + 1 skipped on 669a976, 951 passed + 1 skipped on c274e54 (the 24 new tests; same skip); ruff 23 = 23; ty 189 → 179 |
 | M3 a usable plugin | done | `napari-foambryo` `feature/first-version`: adcb9f4 (.DS_Store), 806f2ee (the plugin), 9769ecb (fixes from the real window); plugin suite 75 passed, 0 skipped (T1–T3; G1–G3, G6–G8, G10; G9 in its first form) |
+| M4 ensembles, estimate, cancel | done | `feature/first-version` 74e6d11; plugin suite 83 passed, 0 skipped; gates G4 (child = library, 1 and 2 workers), G5 (in-memory = .rec route on case 000 cut by the image box), G9 (anchors within the band; the guard's three levels; `run anyway` in the widget); Cancel stops a slow child and its own process |
 | M3b the morning kit | done | `scratch/napari-foambryo/try_napari_foambryo.zsh`, `start_napari_with_foambryo.py`, `TRY-IT.md`; launcher run once with `--smoke-test` in a real napari 0.9.2 window: case 000 reconstructed (1712 points, 10.8 s, 0.76 GiB), inferred, exported; screenshots in `scratch/napari-foambryo/screenshots/` |
 
 ## Decisions
@@ -64,3 +65,12 @@ specification's principles (one code path, no default of its own, nothing silent
     when Python reads its main script from standard input; the launcher is a script file.
 15. **Scale matching for the known answer**: the Results dock's relative error uses the benchmark's convention,
     `mean(true) / mean(inferred)` over the shared interfaces (`foambryo_benchmarks.metrics`).
+16. **Ensemble on screen** (decision Q4): `<mask> ensemble tensions (N seeds, shown on seed 42's mesh)`, the
+    ensemble's tensions on the reconstruction's own mesh; its colour range is that of the ensemble's tensions.
+    The Cells tab is empty for an ensemble (no single mesh carries pressures). An ensemble needs a mesh
+    reconstructed in the plugin (it reconstructs the mask again); a mesh opened from a `.rec` file is refused
+    with the reason.
+17. **The ensemble export's `input`** names `mask.npz` and the array's SHA-256 (there is no mask file unless the
+    mask is exported); its tables are byte for byte `foambryo infer-over-seeds`'.
+18. **Suggested workers** = free memory / the per-seed estimate's upper end, at least 1; the widget turns amber
+    when the chosen number exceeds it and never lowers the user's choice.
