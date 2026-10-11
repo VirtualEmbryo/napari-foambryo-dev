@@ -131,6 +131,10 @@ class ReconstructWidget(QWidget):
         self.spacing_label = QLabel()
         self.spacing_label.setWordWrap(True)
         self.estimate_label = QLabel()
+        self.report_label = QLabel()
+        self.report_label.setWordWrap(True)
+        self._reports: dict[tuple, Any] = {}
+        self._report_worker = None
         self.estimate_label.setWordWrap(True)
         self.run_anyway = QCheckBox("run anyway")
         self.run_button = QPushButton("Reconstruct")
@@ -157,6 +161,7 @@ class ReconstructWidget(QWidget):
         layout.addWidget(_folded("Advanced", advanced))
         layout.addWidget(self.spacing_label)
         layout.addWidget(self.estimate_label)
+        layout.addWidget(self.report_label)
         layout.addWidget(self.run_anyway)
         buttons = QHBoxLayout()
         buttons.addWidget(self.run_button)
@@ -169,6 +174,7 @@ class ReconstructWidget(QWidget):
         self._timer.setInterval(500)
         self._timer.timeout.connect(self._show_progress)
         self.layer_box.currentIndexChanged.connect(self.refresh)
+        self.medium_box.valueChanged.connect(self.refresh)
         self.spacing_from.currentIndexChanged.connect(self.refresh)
         for box in self.spacing_boxes:
             box.valueChanged.connect(self.refresh)
@@ -224,7 +230,8 @@ class ReconstructWidget(QWidget):
         mode = self.spacing_from.currentText() or THIS_LAYER
         other = None
         if mode.startswith("layer: "):
-            other = self.viewer.layers.get(mode.removeprefix("layer: "), None)
+            name = mode.removeprefix("layer: ")
+            other = self.viewer.layers[name] if name in self.viewer.layers else None  # noqa: SIM401 - LayerList has no get
             mode = "layer"
         shape = labels.data[0].shape[-3:] if labels.multiscale else labels.data.shape[-3:]
         return resolve_spacing(
@@ -253,6 +260,7 @@ class ReconstructWidget(QWidget):
             self.run_button.setEnabled(False)
             return
         self.confirm_voxels.setVisible(choice.needs_confirmation or self.confirm_voxels.isChecked())
+        self._request_report()
         if not typed:
             for box, value in zip(self.spacing_boxes, choice.spacing, strict=True):
                 box.blockSignals(True)
@@ -311,13 +319,16 @@ class ReconstructWidget(QWidget):
             dropped_leading_axis=prepared.dropped_leading_axis,
             multiscale_level=prepared.multiscale_level,
             origin=_layer_origin(labels),
+            mask_report=self._report_record(labels),
         )
         base_name = labels.name
         if medium != 0:
             base_name = f"{labels.name} (medium = 0)"
             if base_name in self.viewer.layers:
                 self.viewer.layers.remove(base_name)
-            swapped = self.viewer.add_labels(mask, name=base_name, scale=labels.scale, translate=labels.translate)
+            swapped = self.viewer.add_labels(
+                mask, name=base_name, scale=tuple(labels.scale[-3:]), translate=tuple(labels.translate[-3:])
+            )
             labels_for_display = swapped
         else:
             labels_for_display = labels
@@ -379,6 +390,58 @@ class ReconstructWidget(QWidget):
                 self._finish(f"Failed: {type(error).__name__}: {error}", RED)
 
         self._worker = _start_worker(reconstruct, on_returned=returned, on_errored=errored)
+
+    # -- the mask report ---------------------------------------------------------------------------
+    def _report_key(self, labels: Any) -> tuple:  # noqa: ANN401
+        data = labels.data[0] if labels.multiscale else labels.data
+        return (labels.name, id(data), self.medium_box.value())
+
+    def _report_record(self, labels: Any) -> dict | None:  # noqa: ANN401
+        report = self._reports.get(self._report_key(labels))
+        return None if report is None else report.as_record()
+
+    def _request_report(self) -> None:
+        """Describe the chosen mask (foambryo's `segmentation_mask_report`) off the GUI thread; nothing is changed."""
+        from foambryo.segmentation_masks import segmentation_mask_report
+
+        labels = self.labels_layer()
+        if labels is None:
+            self.report_label.clear()
+            return
+        key = self._report_key(labels)
+        if key in self._reports:
+            self._show_report(key)
+            return
+        if self._report_worker is not None:
+            return
+        _status(self.report_label, "Mask report: counting…")
+        data, multiscale, name, medium = labels.data, labels.multiscale, f"'{labels.name}'", self.medium_box.value()
+
+        def describe() -> Any:  # noqa: ANN401
+            prepared = prepare_mask(data, multiscale=multiscale, name=name)
+            return segmentation_mask_report(swap_medium_label(prepared.mask, medium))
+
+        def returned(report: Any) -> None:  # noqa: ANN401
+            self._report_worker = None
+            self._reports[key] = report
+            self._request_report()
+
+        def errored(error: BaseException) -> None:
+            self._report_worker = None
+            _status(self.report_label, f"Mask report: {error}", RED)
+
+        self._report_worker = _start_worker(describe, on_returned=returned, on_errored=errored)
+
+    def _show_report(self, key: tuple) -> None:
+        report = self._reports[key]
+        notable = report.cells_in_several_pieces or report.enclosed_medium_pieces or report.small_labels
+        text = f"Mask report (nothing is changed): {report.summary().removeprefix('mask: ')}."
+        if report.cells_in_several_pieces:
+            shown = ", ".join(f"{k} ({v})" for k, v in list(report.cells_in_several_pieces.items())[:5])
+            text += f" In several pieces: {shown}{'…' if len(report.cells_in_several_pieces) > 5 else ''}."
+        if report.small_labels:
+            text += f" Very small: {', '.join(str(k) for k in list(report.small_labels)[:8])}."
+        _status(self.report_label, text, AMBER if notable else None)
 
     def _show_progress(self) -> None:
         elapsed = time.perf_counter() - self._memory["started"]
