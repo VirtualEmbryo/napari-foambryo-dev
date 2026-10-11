@@ -73,14 +73,33 @@ def _labels_layers(viewer: Any) -> list:  # noqa: ANN401
     return [layer for layer in viewer.layers if isinstance(layer, Labels)]
 
 
+#: Workers still running, held until they finish: a dock closed meanwhile must not let one be collected half-way.
+_LIVE_WORKERS: set = set()
+
+
 def _start_worker(function: Any, *args: Any, on_returned: Any, on_errored: Any) -> Any:  # noqa: ANN401
     from napari.qt.threading import create_worker
 
     worker = create_worker(function, *args, _start_thread=False)
-    worker.returned.connect(on_returned)
-    worker.errored.connect(on_errored)
+    worker.returned.connect(_unless_closed(on_returned))
+    worker.errored.connect(_unless_closed(on_errored))
+    _LIVE_WORKERS.add(worker)
+    worker.finished.connect(lambda: _LIVE_WORKERS.discard(worker))
     worker.start()
     return worker
+
+
+def _unless_closed(handler: Any) -> Any:  # noqa: ANN401
+    """A worker's handler that does nothing once its dock was closed (its Qt widgets deleted) during the run."""
+
+    def handle(value: Any) -> None:  # noqa: ANN401
+        try:
+            handler(value)
+        except RuntimeError as error:
+            if "has been deleted" not in str(error):
+                raise
+
+    return handle
 
 
 def _status(label: QLabel, text: str, colour: str | None = None) -> None:

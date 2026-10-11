@@ -23,6 +23,15 @@ from napari_foambryo._widgets import ExportWidget, InferWidget, ReconstructWidge
 TIMEOUT_MS = 180_000
 
 
+@pytest.fixture(autouse=True)
+def _wait_for_background_workers(qtbot):
+    """Let the widgets' background work (the mask report) finish before Qt is torn down."""
+    yield
+    from napari_foambryo._widgets import _LIVE_WORKERS
+
+    qtbot.waitUntil(lambda: not _LIVE_WORKERS, timeout=TIMEOUT_MS)
+
+
 @pytest.fixture
 def viewer():
     from napari.components import ViewerModel

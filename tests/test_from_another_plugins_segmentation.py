@@ -23,6 +23,15 @@ from tests.conftest import quietly, same_floats, sha
 TIMEOUT_MS = 180_000
 
 
+@pytest.fixture(autouse=True)
+def _wait_for_background_workers(qtbot):
+    """Let the widgets' background work (the mask report) finish before Qt is torn down."""
+    yield
+    from napari_foambryo._widgets import _LIVE_WORKERS
+
+    qtbot.waitUntil(lambda: not _LIVE_WORKERS, timeout=TIMEOUT_MS)
+
+
 @pytest.fixture
 def another_plugins_output(samples):
     dask = pytest.importorskip("dask.array")
