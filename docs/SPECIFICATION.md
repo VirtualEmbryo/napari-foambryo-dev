@@ -1,12 +1,13 @@
-# napari-foambryo — specification, version 0 (draft for review)
+# napari-foambryo — specification, version 1 (approved)
 
 A napari plugin that turns a 3-D segmentation into a multimaterial mesh with delaunay-watershed-3d, infers its
 relative surface tensions and cell pressures with foambryo, shows them on the tissue, and exports the same files
 as the `foambryo` command.
 
-Draft of 11 October 2026, for the maintainer's review before any code is written. Where this text and a later
-implementation disagree, the text is the intent and the code is a defect. Section 11 lists the questions still
-open; nothing in it is decided.
+Version 0 was the draft of 11 October 2026. The maintainer approved it the same night, answered its eleven open
+questions (now the decisions of § 11) and added one requirement: going from a segmentation made by another napari
+plugin to foambryo without leaving napari (§ 1.7, with changes to §§ 2.1, 2.3, 6.2, 8 and 9). Where this text
+and the implementation disagree, the text is the intent and the code is a defect.
 
 ![widgets, layers and code path](figures/plugin_widgets_layers_and_code_path.png)
 
@@ -23,7 +24,7 @@ such. `TO VERIFY`: an open fact to check during the build.
 
 **Words.** *The library*: delaunay-watershed-3d (`dw3d`) and foambryo, version 0.7 or later. Version 0.7 is not
 released yet: both sources read 0.6.0 today, and the command and the seed ensembles are on a foambryo branch under
-review, so the plugin's build waits for them (question Q1). *The command*: the
+review, so the plugin is built against that branch (decision Q1). *The command*: the
 `foambryo` executable (`mesh`, `infer`, `infer-over-seeds`, `view`) and its behavioural specification,
 `docs/command_line_specification.md` in foambryo. *A mask*: a 3-D array of non-negative integer labels, 0 the
 medium, axis 0 = z, axis 1 = y, axis 2 = x.
@@ -93,7 +94,7 @@ tensions. *Infer → seed ensemble* calls `infer_tensions_over_seeds` (seeds 0 �
 before the run and never chosen on a result) and shows the ensemble tension, the seed standard deviation (a
 lower bound on the error, not an error bar, as the library documents), the number of seeds that found each
 interface and the flag for interfaces found by fewer than half of the seeds. No pressures: no single mesh carries
-them. Display: see § 3.5 and question Q4.
+them. Display: see § 3.5 (decision Q4).
 
 ### 1.5 Large tissues
 
@@ -111,6 +112,38 @@ optionally the mask with its voxel size. The run record names the command lines 
 (§ 2.3). A user can therefore send the folder to a colleague without napari, or re-run the large case on a
 bigger machine with the command and open the result back in napari with the `.rec` reader.
 
+### 1.7 From another plugin's segmentation to foambryo, in one viewer
+
+A user segments a membrane stack with another napari plugin (Cellpose, PlantSeg, micro-sam, napari's own label
+tools, …) and goes on to foambryo without leaving napari or saving a file.
+
+1. **Any Labels layer is an input**, whoever made it. A context-menu entry on Labels layers, *Reconstruct with
+   foambryo*, selects that layer in the Reconstruct widget and shows the widget (npe2's layer context menu,
+   `TO VERIFY` in the supported napari versions; without it, the widget's layer list does the same).
+2. **Spacing when the labels do not carry it.** Segmentation plugins do not always copy the image's scale to the
+   Labels layer they create. *Spacing from*: this layer, another layer (typically the image that was segmented),
+   or typed. Never guessed; the choice is written in `run.json` (§ 2.3).
+3. **What other tools produce** is accepted as it is: any integer type; labels need not be consecutive (a label is
+   a name, and it is kept); a leading axis of length 1 (time or channel) is dropped, with a message; a multiscale
+   layer is read at its full-resolution level; a dask or zarr array is read into memory (the estimate counts it).
+   Refused, with the reason: 2-D data, several time points, floating-point or boolean data, negative labels.
+4. **The medium label.** foambryo's medium is label 0; some tools give the background another label. *Medium is
+   label …* (default 0): another choice creates a new, visible Labels layer `<mask> (medium = 0)` with that label
+   and 0 swapped, and that layer is what is reconstructed. Export then always includes the mask, because the
+   equivalent command needs it. The plugin changes the mask in no other way.
+5. **A mask report before Run**, computed by the library (`segmentation_mask_report`, § 6.2) so that `foambryo
+   mesh` prints the same summary: the number of cells; the cells touching the image box (they will be cut cells);
+   the cells in several pieces; the pieces of medium enclosed by the tissue; the very small labels. A report only:
+   nothing is changed. Whether such fragments should be cleaned is a question for the library; a cleaning option
+   would come from it later.
+6. **Results that are out of date.** When the source Labels layer changes (the user paints, or the segmentation
+   plugin runs again), the mesh and result layers are marked *out of date (the labels changed)* and Export is
+   disabled until Reconstruct runs again. Detected from the layer's events and, at Export, from the SHA-256 of
+   its data against the one recorded at Run (the events alone could miss a change made in place).
+7. **Provenance.** `run.json`'s `source_mask` records the layer's origin as napari keeps it (`Layer.source`: the
+   file path, the reader plugin, or the widget that made it; `TO VERIFY` in the supported versions), so that a
+   result names the segmentation step it came from.
+
 ---
 
 ## 2. Widgets and their options
@@ -123,27 +156,37 @@ read from the signature at start-up; the value in brackets is today's.
 
 | option | default | where it comes from |
 |---|---|---|
-| Labels layer | the selected Labels layer | the viewer |
-| spacing (z, y, x) | the layer's `scale` | napari; see below |
-| spacing unit | the layer's `units` if set, else `um` | napari (`TO VERIFY`: `Layer.units` exists in the supported napari versions), the command's fallback |
+| Labels layer | the selected Labels layer, or the one the context menu named (§ 1.7) | the viewer |
+| spacing from | *this layer* | *this layer*, *another layer* (a list of the viewer's layers), or *typed* (§ 1.7) |
+| spacing (z, y, x) | the chosen layer's `scale` | napari; see below |
+| spacing unit | the chosen layer's `units` if set, else `um` | napari (`TO VERIFY`: `Layer.units` exists in the supported napari versions), the command's fallback |
+| medium is label | `0` | the library's medium; another value makes a swapped copy (§ 1.7) |
 | *Advanced:* `min_distance` | dw3d's (`3`) | `get_default_mesh_reconstruction_algorithm` |
 
-* **Spacing.** The layer's `scale` is the voxel size in napari's (z, y, x) order, the order of dw3d's points.
-  There is no default spacing: when the layer's scale is napari's own default (1, 1, 1) and carries no unit, the
-  widget shows *"voxel size unknown (napari's default scale): enter it, or confirm voxel units"* and Run stays
-  disabled until the user confirms (question Q3). The widget validates the spacing as typed with
-  `dw3d.mask_preprocessing.coarse_axis_and_factor` and shows, for an anisotropic one, *"resampled to cubic
-  voxels of {h} {unit}: {k}× the voxels; min_distance counts cubic voxels"*.
-* **Mask checks**: 3-D, integer, non-negative, the command's checks (made public, § 6.2). A 4-D or 2-D layer is
-  refused: time series are out of scope (§ 10). A Labels layer with a rotation, shear or affine other than scale
-  and translate is refused (`TO VERIFY` whether napari exposes them separately in every supported version).
-  A lazy array (dask, zarr) is read into memory; the estimate counts it.
+* **Spacing.** A layer's `scale` is the voxel size in napari's (z, y, x) order, the order of dw3d's points.
+  There is no default spacing: when the chosen scale is napari's own default (1, 1, 1) and carries no unit, the
+  widget shows *"voxel size unknown (napari's default scale): enter it, take it from the image layer, or confirm
+  voxel units"* and Run stays disabled until the user confirms (decision Q3). *Another layer* must have the
+  same 3-D shape as the labels (after a dropped leading axis), or the widget says why it cannot be used. The
+  widget validates the spacing as typed with `dw3d.mask_preprocessing.coarse_axis_and_factor` and shows, for an
+  anisotropic one, *"resampled to cubic voxels of {h} {unit}: {k}× the voxels; min_distance counts cubic
+  voxels"*.
+* **Mask checks**: 3-D, integer, non-negative, the command's checks (made public, § 6.2), after the
+  accommodations of § 1.7 (a leading axis of length 1 dropped, the full-resolution level of a multiscale layer,
+  a lazy array read into memory; the estimate counts it). A 4-D layer with several time points, a 2-D layer,
+  floating-point or boolean data and negative labels are refused with the reason. A Labels layer with a
+  rotation, shear or affine other than scale and translate is refused (`TO VERIFY` whether napari exposes them
+  separately in every supported version).
+* **Mask report** (§ 1.7): shown under the options as soon as a layer is chosen, computed in the worker thread
+  for a large mask. It never blocks Run.
 * **Run** reconstructs in a child process (§ 5.1) and adds the layers of § 3. **Cancel** terminates it; nothing
   is added. The summary line is the command's: *"134 538 points, 326 805 triangles, 1 942 cells (0 cut by the
   image boundary)"*.
+* **Out of date** (§ 1.7): a change of the source layer's data marks the result layers and disables Export
+  until the next Run.
 * Left out of 0.1.0: the faces of the image box where the tissue really ends (`physical_image_faces`), the
-  resampling method (`"nearest"`), the reconstruction seed. The command offers none of them (principle 3);
-  adding any is question Q2.
+  resampling method (`"nearest"`), the reconstruction seed. The command offers none of them (principle 3,
+  decision Q2).
 
 ### 2.2 Infer
 
@@ -177,7 +220,7 @@ In *seed ensemble* mode the options are those of `foambryo infer-over-seeds`:
   (§ 5.1).
 * **Run (seed ensemble)**: `infer_tensions_over_seeds` in a child process; its own workers inside.
 * Left out of 0.1.0: the angle reading for a single mesh (`infer_forces` and `foambryo infer` do not take it;
-  question Q2), the wedge refusal, the uncertainty estimates (`infer_tensions_with_uncertainty`: a lower bound
+  decision Q2), the wedge refusal, the uncertainty estimates (`infer_tensions_with_uncertainty`: a lower bound
   only, and not in the command), the sparse threshold.
 
 ### 2.3 Export
@@ -191,14 +234,17 @@ A folder chooser and one button. What is written:
 | `spectra.npz` | with diagnostics `spectrum` | the same |
 | `run.json` | schema 1 of the command's run record, plus keys (below) | the same keys and values, except `command`, `arguments`, `date`, `elapsed_seconds`, `versions` |
 | `colour_bars.png` | `save_colour_bars` on the shown values | `foambryo view --colour-bars` |
-| `mask.npz` (optional, off by default: Q5) | arrays `mask`, `spacing`, `spacing_unit` | what `foambryo mesh` reads |
+| `mask.npz` (optional, off by default: decision Q5; always written when the medium label was swapped, § 1.7) | arrays `mask`, `spacing`, `spacing_unit` | what `foambryo mesh` reads |
 | `seed-ensemble/tensions.csv`, `tensions_per_seed.csv`, `run.json` | when an ensemble was run | `foambryo infer-over-seeds`, byte for byte for the tables |
 
 * Keys added to `run.json` (a schema may gain keys, never lose or rename one): `"source_mask"` (layer name,
-  shape, dtype, SHA-256 of the array's C-order bytes, spacing, unit), `"equivalent_commands"` (the command lines
+  shape, dtype, SHA-256 of the array's C-order bytes, spacing, unit, `spacing_from` (*this layer*, the other
+  layer's name, or *typed*), the medium label and whether it was swapped, the dropped leading axis if any, the
+  multiscale level read, the layer's origin as napari records it, and the mask report), `"equivalent_commands"` (the command lines
   that reproduce the folder, for example `foambryo mesh mask.npz -o mesh.rec --min-distance 3` then
   `foambryo infer mesh.rec -o . --tension-method young-dupre --pressure-method variational`), and
   `"versions"` gains `napari` and `napari-foambryo`.
+* Export is disabled while the results are out of date (§ 1.7), with the reason shown on the button.
 * The *Export CSV* button of the results dock writes one table alone, in the same format.
 * **Writer contribution**: a plugin Surface layer saved with napari's *File → Save Layer* as `.rec` writes the
   mesh file above. Other layers are declined.
@@ -207,7 +253,7 @@ A folder chooser and one button. What is written:
 
 | left out | why |
 |---|---|
-| `physical_image_faces`, resampling method, seed, single-mesh angle reading | not in the command (principle 3); question Q2 |
+| `physical_image_faces`, resampling method, seed, single-mesh angle reading | not in the command (principle 3, decision Q2) |
 | uncertainty / error bars | a lower bound only; not in the command |
 | per-edge local tension fields, line tensions | research features; line tensions are in development |
 | stress glyphs, force vectors, per-cell stress tensors | the Polyscope viewer (`foambryo view`) keeps them |
@@ -289,7 +335,7 @@ The ensemble has no mesh of its own. The proposal: show the ensemble tensions on
 widget (the library's default seed, 42, which is deliberately not in the ensemble's 0 … N−1), matched by label
 pair; mesh interfaces the ensemble did not find are grey; ensemble interfaces absent from that mesh appear only in
 the table, marked *not on the displayed mesh*. The layer is named `<mask> ensemble tensions (N seeds, shown on
-seed 42's mesh)`. Alternatives are question Q4.
+seed 42's mesh)` (decision Q4).
 
 ### 3.6 Colour maps and colour bars
 
@@ -348,14 +394,14 @@ A dock with two tabs.
 * The mesh comes back by pickling. `MEASURED` on the four-cell fixture cut by the image box with a z step of 2:
   the mesh built in a spawned child has the same points and triangles and gives bitwise the same tensions and
   pressures as the mesh built in-process; 0.8 s round trip including the spawn. The pickled size of a
-  1 866-cell mesh is `TO VERIFY`; the mask is sent to the child through shared memory, not pickled, so a 1 GB
-  mask is not copied twice (`TO VERIFY` on the large case).
+  1 866-cell mesh is `TO VERIFY`. The mask is sent to the child by pickling (decision Q6); shared memory only if
+  the large-case gate shows that the copy matters.
 * **Single-mesh inference** runs in the worker thread (seconds); with `solver="dense"`, the only path measured in
   minutes on a large tissue, it runs in a child process like a reconstruction. Cancel is offered only where it can
   act.
 * **Progress at step level**: *checking the mask → resampling to cubic voxels (if anisotropic) → reconstructing
   (elapsed / estimate) → building the layers*; *tensions → pressures → colours*; for an ensemble, *elapsed /
-  estimate*. Seed-by-seed progress needs a progress callback in `infer_tensions_over_seeds` (question Q7); the
+  estimate*. Seed-by-seed progress needs a progress callback in `infer_tensions_over_seeds` (decision Q7); the
   reconstruction's internal steps are not exposed by dw3d and are not parsed from its printed output.
 * The child's peak memory (resident set size, polled) is shown during the run and recorded in `run.json`, so that
   every run adds an anchor to the estimate.
@@ -403,7 +449,7 @@ With `total` and `available` memory read from the operating system (`psutil`):
 |---|---|---|
 | upper end of the band ≤ available | estimate in plain text | enabled |
 | central ≤ total, upper > available | amber: *"may need more memory than is free: close other programs"* | enabled |
-| central > total | red: *"needs about {M} GiB; this machine has {T} GiB. Run `foambryo mesh` on a larger machine (same numbers) and open the .rec here"* | needs ticking *run anyway* (question Q8) |
+| central > total | red: *"needs about {M} GiB; this machine has {T} GiB. Run `foambryo mesh` on a larger machine (same numbers) and open the .rec here"* | needs ticking *run anyway* (decision Q8) |
 
 For an ensemble the widget suggests `workers = max(1, ⌊available / per-seed upper⌋)` and turns amber when the
 chosen value exceeds it. The plugin never lowers the user's choice silently.
@@ -426,17 +472,20 @@ chosen value exceeds it. The plugin never lowers the user's choice silently.
 * The plugin follows the in-memory route and exports through the command's writers, so a gate (G6) checks that
   `foambryo infer` on the exported `mesh.rec` reproduces the exported tables byte for byte.
 
-### 6.2 What foambryo should make public
+### 6.2 What foambryo makes public
 
 The command does its work through module-private code: the tables and run record (`_result_tables`), the colour
 scales (`_colour_scales`), and helpers inside `cli.py` (`read_mask`, `mesh_from_mask`,
 `infer_as_the_library_does`, the run-record assembly). A plugin importing private modules breaks silently on any
-release; a plugin re-implementing them is a second implementation that drifts. **Proposal (option A,
-recommended):** foambryo 0.7 makes them public, and the command and the plugin both call the public versions:
+release; a plugin re-implementing them is a second implementation that drifts. **Decision Q1 (option A):**
+foambryo 0.7 makes them public, kept as small as the plugin needs, on a branch of its own built on the command's
+branch (`feature/public-helpers-for-front-ends`, merged after the command's review), and the command and the
+plugin both call the public versions. The names below are those of the proposal; § 6.4, added with the build,
+lists them as built.
 
 | public name (proposed) | today | used by the plugin for |
 |---|---|---|
-| `foambryo.io.read_segmentation_mask(path)` and `check_segmentation_mask(array)` | `cli.read_mask` and its checks | *Open segmentation…*, the mask checks |
+| `foambryo.io.read_segmentation_mask(path)` and `check_segmentation_mask(array)`; `segmentation_mask_report(array)`, the mask report of § 1.7, which `foambryo mesh` prints too | `cli.read_mask` and its checks; nothing | *Open segmentation…*, the mask checks, the mask report |
 | `foambryo.reconstruct_mask(mask, spacing, *, spacing_unit, min_distance)` → a result holding the `DcelData` (built as `dcel_mesh_from_segmentation_mask` builds it), a `save_rec(path)` that writes `foambryo mesh`'s file, and the counts of the summary line | `cli.mesh_from_mask` + `_dcel_mesh_from_mask_with` | Reconstruct, Export of `mesh.rec` |
 | `foambryo.infer_tensions_then_pressures(mesh, …)` → tensions, pressures, solve records, status, message, the library call as text | `cli.infer_as_the_library_does` | Infer (one mesh) |
 | `foambryo.results`: the table writers and readers, `format_float`, `RUN_RECORD_SCHEMA`, a run-record builder, `write_run_record` | `_result_tables` + the record assembly in `cli._run_infer` | Export, *Export CSV* |
@@ -446,9 +495,13 @@ recommended):** foambryo 0.7 makes them public, and the command and the plugin b
   unchanged, and that is the acceptance test of the refactor.
 * Option B: the plugin imports `foambryo.cli`'s helpers as they are. They take `argparse.Namespace` arguments
   and are not documented as an interface. Option C: the plugin pins `foambryo==0.7.*` and imports the private
-  modules. Both are worse; question Q1.
+  modules. Both are worse.
+* Two additions on the same branch, also without a behaviour change: a `progress=` callback in
+  `infer_tensions_over_seeds`, called once per seed (decision Q7), and a property of the pressure-method
+  enumeration saying whether a method has a formulation for crop faces, so the widget disables the others on a
+  cropped mesh instead of failing after the tensions (decision Q10).
 * dw3d needs nothing new: `coarse_axis_and_factor`, `isotropic_spacing` and `construct_mesh_in_physical_units` are
-  public already.
+  public already. No step callback in dw3d for now (decision Q7).
 
 ### 6.3 Determinism
 
@@ -472,8 +525,12 @@ process inherits the environment.
   * **writer**: Surface layers carrying `metadata["foambryo"]` → `.rec`;
   * **sample data**: *synthetic foam, 12 cells* (cubic voxels), *the same, z step 2×* (anisotropic) and *the same,
     cut by the image box*: Voronoi cells in a ball, generated in code from a fixed seed (no data file shipped),
-    small enough to reconstruct in a few seconds.
-* **Dependencies**: `napari>=0.7` (released March 2026; question Q9), `magicgui`, `qtpy`, `numpy`, `matplotlib`
+    small enough to reconstruct in a few seconds. They are not at equilibrium, so their tensions mean nothing:
+    they show the workflow, not the method's accuracy. A sample with a known answer, benchmark case 000 (6 cells,
+    194 × 200 × 199, about 145 kB as a compressed `.npz`) with its true tensions, is added by one data file and
+    one manifest entry once the dataset's redistribution under the plugin's licence is confirmed (not yet).
+* **Dependencies**: `napari>=0.9` (decision Q9: the oldest version on which the tiers actually pass, starting from
+  the latest minor version; lowered only if a user needs it), `magicgui`, `qtpy`, `numpy`, `matplotlib`
   (the colour functions), `psutil` (if napari does not already require it: `TO VERIFY`),
   `delaunay-watershed-3d>=0.7`, `foambryo[cli]>=0.7` (the `cli` extra brings `tifffile` for TIFF masks). No Qt
   binding pinned: napari's `napari[all]` or the user's environment provides one, as napari recommends.
@@ -521,6 +578,15 @@ counts miss changes).
 * G9 the estimate reproduces its anchors within its stated band; the memory-guard thresholds of § 5.3 on
   synthetic machine sizes.
 * G10 defaults: every widget default equals the library signature's default.
+* G11 another plugin's output (§ 1.7): a fixture imitating it (uint16, labels not consecutive, background
+  label 1, no scale on the labels but one on the image layer, a leading axis of length 1, a dask array) gives
+  bitwise the library's numbers on the equivalent clean mask (the same labels with the medium at 0, the axis
+  dropped, in memory, with the image layer's spacing).
+
+**Manual check of § 1.7**: one segmentation plugin that segments 3-D cells from membranes, installed in a
+development environment only (never a dependency of napari-foambryo; its version and licence recorded),
+segments benchmark case 000's synthetic microscopy stack; then Reconstruct → Infer, with screenshots, and the
+inferred tensions compared with case 000's true ones.
 
 **Fixtures**: synthetic masks only (the sample foams; the four-cell fixture of foambryo's command tests) and,
 when the dataset folder is present, benchmark case 000, skipped otherwise with its reason. No restricted or
@@ -549,6 +615,9 @@ release.
   a hub description file (`TO VERIFY`: the hub's current conventions at build time).
 * **Quickstart script** `examples/quickstart.py`: opens a viewer with the sample foam and drives the three
   widgets programmatically (needs a display).
+* **From a segmentation plugin to foambryo** (§ 1.7): a README section and an example,
+  `examples/from_a_segmentation_plugin.py`, starting from a Labels layer as another plugin leaves it (no scale,
+  background not 0) and the image layer it was made from.
 * This specification stays in `docs/` and is updated with the code.
 
 ---
@@ -565,25 +634,34 @@ release.
 
 ---
 
-## 11. Open questions for the maintainer
+## 11. Decisions (the maintainer, 11 October 2026)
 
-* **Q1 — Public API.** Make the command's helpers public in foambryo 0.7 (§ 6.2, option A, recommended)? If so,
-  on the command branch before its review is finished, or after it merges?
-* **Q2 — Parity.** Keep the plugin's options to the command's? Add `angle_reading` to `infer_forces` and
-  `foambryo infer`, and `physical_image_faces` to `foambryo mesh`, so both front ends offer them?
-* **Q3 — Unknown voxel size.** When a Labels layer has napari's default scale (1, 1, 1), require an explicit
-  confirmation of voxel units before Run (proposed, as the command requires `--spacing`), or accept it?
-* **Q4 — Ensembles on screen.** Show ensemble tensions on seed 42's mesh (proposed), on the mesh of seed 0
-  (requires the library to return it), or in the table only?
-* **Q5 — Mask in the export.** Off by default (proposed: it is the user's data, and can be large; its SHA-256 is
-  always recorded), or on, for complete reproducibility?
-* **Q6 — Runner.** Child process for reconstructions and ensembles (proposed), or a thread only, with Cancel
-  acting between steps?
-* **Q7 — Progress.** Add a progress callback to `infer_tensions_over_seeds` (one call per seed)? And later a
-  step callback in dw3d's reconstruction?
-* **Q8 — Memory guard.** Above the machine's memory, require *run anyway* (proposed) or only warn?
-* **Q9 — Versions.** napari ≥ 0.7 and Python ≥ 3.11 (proposed)?
-* **Q10 — Refusals the widget can foresee.** Should the library say which pressure methods have a formulation for
-  crop faces, so the widget can disable them rather than fail after the tensions?
-* **Q11 — Estimate data.** Refit the estimate from quiet-machine timings of the 0.7 libraries before 0.1.0, or
-  ship the current fit with its stated band?
+The eleven questions of version 0, with the answers that version 1 builds on.
+
+* **Q1 — Public API.** Yes, option A, kept as small as the plugin needs, on `feature/public-helpers-for-front-ends`
+  built on the command's branch and not merged into it: the command's review stays on a stable branch, and the
+  helpers branch is rebased and merged after it. Acceptance: the command's tests pass unchanged.
+* **Q2 — Parity.** Yes: the plugin offers the command's options only. Nothing is added to the command for 0.1.0
+  (no single-mesh `angle_reading`, no `physical_image_faces`).
+* **Q3 — Unknown voxel size.** An explicit confirmation of voxel units is required before Run, as the command
+  requires `--spacing`.
+* **Q4 — Ensembles on screen.** As proposed: on seed 42's mesh, matched by label pair; interfaces not on that mesh
+  in the table only.
+* **Q5 — Mask in the export.** Off by default, its SHA-256 always recorded (always written when the medium label
+  was swapped, § 1.7).
+* **Q6 — Runner.** A child process for reconstructions and ensembles. For 0.1.0 the mask is sent by pickling;
+  shared memory only if the large-case gate shows that the copy matters.
+* **Q7 — Progress.** A `progress=` callback in `infer_tensions_over_seeds` (one call per seed), on the helpers
+  branch. No step callback in dw3d for now.
+* **Q8 — Memory guard.** *Run anyway* must be ticked when the central estimate exceeds the machine's memory.
+* **Q9 — Versions.** Python ≥ 3.11, as the libraries. napari: the oldest version on which the
+  continuous-integration tiers actually pass, tested there, starting from the latest minor version (0.9); the
+  floor is lowered only if a user needs it.
+* **Q10 — Foreseeable refusals.** Yes: the pressure-method enumeration states whether a method has a formulation
+  for crop faces, on the helpers branch, and the widget disables the others on a cropped mesh.
+* **Q11 — Estimate data.** Refit from quiet-machine timings of the 0.7 libraries if they exist before 0.1.0;
+  otherwise ship the current fit with its stated band.
+
+Two further decisions: the sample with a known answer (benchmark case 000, § 7) waits for the redistribution
+question; and the tension colour map stays `jet`, as in the Polyscope viewer: if it changes to a perceptually
+uniform map, both viewers change together, in the library (not in 0.1.0).
