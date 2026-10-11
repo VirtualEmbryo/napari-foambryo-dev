@@ -1,0 +1,30 @@
+{
+ "seconds": {
+  "exponent": 1.157,
+  "prefactor": 3.6358636769611024e-08,
+  "ratio_measured_over_predicted": {
+   "benchmark at real cell size (median)": 1.58,
+   "benchmark default size (median)": 0.68,
+   "90-cell simulated tissue": 0.88,
+   "110-cell tissue, native grid": 0.7,
+   "165-cell simulated tissue": 0.97,
+   "1 866-cell tissue, native grid": 1.46,
+   "1 866-cell tissue, cubic voxels": 1.07
+  },
+  "max_factor_error": 1.58
+ },
+ "peak_GiB": {
+  "exponent": 0.702,
+  "prefactor": 2.1422186523855385e-05,
+  "ratio_measured_over_predicted": {
+   "benchmark at real cell size (median)": 1.29,
+   "benchmark default size (median)": 0.82,
+   "90-cell simulated tissue": 0.97,
+   "110-cell tissue, native grid": 0.67,
+   "165-cell simulated tissue": 1.17,
+   "1 866-cell tissue, native grid": 1.06,
+   "1 866-cell tissue, cubic voxels": 1.16
+  },
+  "max_factor_error": 1.49
+ }
+}

@@ -1,0 +1,8 @@
+{
+ "pickled_mesh_bytes": 120362,
+ "child_round_trip_seconds_including_spawn": 0.79,
+ "same_points": true,
+ "same_triangles": true,
+ "tensions_bitwise_equal": true,
+ "pressures_bitwise_equal": true
+}
