@@ -1,0 +1,118 @@
+{
+ "segmentation_plugin": "napari-segment-blobs-and-things-with-membranes",
+ "segmentation_call": "local_minima_seeded_watershed(image, spot_sigma=8, outline_sigma=0)",
+ "segmentation_seconds": 2.26,
+ "segments": 12,
+ "background_label": 1,
+ "variants": {
+  "A_as_the_plugin_leaves_it": {
+   "mask_report_text": "Mask report (nothing is changed): 11 cells; 5 touch the image box (cut cells); 0 in several pieces; 0 pieces of medium enclosed by the tissue; 0 smaller than 5% of the median cell (14527.1 voxels).",
+   "reconstruct": "3595 points, 7587 triangles, 11 cells (5 cut by the image boundary) in 22.4 s, peak 7.68 GiB. The labels layer 'local_minima_seeded_watershed result (medium = 0)' is hidden (its voxels hide the mesh in 3-D). Next: Infer.",
+   "interfaces_compared": 18,
+   "true_interfaces": 18,
+   "interfaces_not_compared": 23,
+   "scale_factor": 0.7433861678722625,
+   "median_relative_error": 0.07397294365386953,
+   "relative_error_per_interface": {
+    "0-1": 0.9123,
+    "0-2": 0.1333,
+    "0-3": 0.0309,
+    "0-4": 0.0456,
+    "0-5": 0.0924,
+    "0-6": 0.2067,
+    "1-2": 0.0673,
+    "1-3": 0.0249,
+    "1-4": 0.0199,
+    "1-5": 0.0324,
+    "1-6": 0.1762,
+    "2-3": 0.1968,
+    "2-4": 0.1604,
+    "2-6": 0.0806,
+    "3-6": 0.0406,
+    "4-5": 0.1175,
+    "4-6": 0.0667,
+    "5-6": 0.0308
+   },
+   "status": "complete",
+   "cut_cells": [
+    2,
+    6,
+    7,
+    11,
+    12
+   ],
+   "infer": "complete in 0.3 s. Shown: local_minima_seeded_watershed result (medium = 0) tensions; the other result layers are hidden (tick their eye to show them).",
+   "results_summary": "41 interfaces, 12 materials; status complete",
+   "mapping": {
+    "0": 0,
+    "3": 5,
+    "4": 4,
+    "5": 6,
+    "8": 1,
+    "9": 3,
+    "10": 2
+   }
+  },
+  "B_background_pieces_merged": {
+   "mask_report_text": "Mask report (nothing is changed): 6 cells; 0 touch the image box (cut cells); 0 in several pieces; 0 pieces of medium enclosed by the tissue; 0 smaller than 5% of the median cell (14532.6 voxels).",
+   "reconstruct": "1710 points, 3570 triangles, 6 cells (0 cut by the image boundary) in 14.7 s, peak 1.42 GiB. The labels layer 'local_minima_seeded_watershed result (medium = 0)' is hidden (its voxels hide the mesh in 3-D). Next: Infer.",
+   "interfaces_compared": 18,
+   "true_interfaces": 18,
+   "interfaces_not_compared": 0,
+   "scale_factor": 0.9999944444444446,
+   "median_relative_error": 0.068936232929576,
+   "relative_error_per_interface": {
+    "0-1": 0.9534,
+    "0-2": 0.0767,
+    "0-3": 0.026,
+    "0-4": 0.0338,
+    "0-5": 0.1065,
+    "0-6": 0.2202,
+    "1-2": 0.0599,
+    "1-3": 0.0611,
+    "1-4": 0.0173,
+    "1-5": 0.0451,
+    "1-6": 0.1889,
+    "2-3": 0.1815,
+    "2-4": 0.1688,
+    "2-6": 0.1032,
+    "3-6": 0.0331,
+    "4-5": 0.1131,
+    "4-6": 0.0554,
+    "5-6": 0.0201
+   },
+   "status": "complete",
+   "cut_cells": [],
+   "infer": "complete in 0.1 s. Shown: local_minima_seeded_watershed result (medium = 0) tensions; the other result layers are hidden (tick their eye to show them).",
+   "results_summary": "18 interfaces, 7 materials; status complete",
+   "mapping": {
+    "0": 0,
+    "3": 5,
+    "4": 4,
+    "5": 6,
+    "8": 1,
+    "9": 3,
+    "10": 2
+   }
+  }
+ },
+ "edit": {
+  "pieces_set_to_the_background": [
+   2,
+   6,
+   7,
+   11,
+   12
+  ],
+  "rule": "the pieces that touch the image box (the mask report lists them)"
+ },
+ "out_of_date_after_edit": "local_minima_seeded_watershed result (medium = 0) cells [out of date]",
+ "exported": [
+  "mesh.rec",
+  "tensions.csv",
+  "pressures.csv",
+  "colour_bars.png",
+  "mask.npz",
+  "run.json"
+ ]
+}

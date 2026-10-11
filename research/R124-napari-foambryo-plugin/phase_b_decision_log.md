@@ -13,6 +13,7 @@ specification's principles (one code path, no default of its own, nothing silent
 | M1 checks | done | foambryo suite 927 passed + 1 skipped on 669a976, 951 passed + 1 skipped on c274e54 (the 24 new tests; same skip); ruff 23 = 23; ty 189 → 179 |
 | M3 a usable plugin | done | `napari-foambryo` `feature/first-version`: adcb9f4 (.DS_Store), 806f2ee (the plugin), 9769ecb (fixes from the real window); plugin suite 75 passed, 0 skipped (T1–T3; G1–G3, G6–G8, G10; G9 in its first form) |
 | M4 ensembles, estimate, cancel | done | `feature/first-version` 74e6d11; plugin suite 83 passed, 0 skipped; gates G4 (child = library, 1 and 2 workers), G5 (in-memory = .rec route on case 000 cut by the image box), G9 (anchors within the band; the guard's three levels; `run anyway` in the widget); Cancel stops a slow child and its own process |
+| M5 from another plugin's segmentation | done | `feature/first-version` a09cdd8, 15f52ab, 63e4a39; plugin suite 86 passed, 0 skipped; gate G11 (bitwise through the widgets); manual check with napari-segment-blobs-and-things-with-membranes 0.3.12 (BSD-3-Clause, R. Haase) on case 000's microscopy stack, in a real window: median relative tension error 0.074 as the plugin leaves the labels, 0.069 once the background pieces are merged, against 0.041 on the true mask (`results/from_a_membrane_segmentation_plugin_on_case_000.json`) |
 | M3b the morning kit | done | `scratch/napari-foambryo/try_napari_foambryo.zsh`, `start_napari_with_foambryo.py`, `TRY-IT.md`; launcher run once with `--smoke-test` in a real napari 0.9.2 window: case 000 reconstructed (1712 points, 10.8 s, 0.76 GiB), inferred, exported; screenshots in `scratch/napari-foambryo/screenshots/` |
 
 ## Decisions
@@ -74,3 +75,25 @@ specification's principles (one code path, no default of its own, nothing silent
     mask is exported); its tables are byte for byte `foambryo infer-over-seeds`'.
 18. **Suggested workers** = free memory / the per-seed estimate's upper end, at least 1; the widget turns amber
     when the chosen number exceeds it and never lowers the user's choice.
+19. **The segmentation plugin for the manual check** is napari-segment-blobs-and-things-with-membranes 0.3.12
+    (BSD-3-Clause, by Robert Haase; local-minima seeded watershed for membrane images): classic image processing,
+    no model file, no GPU; installed in the scratch venv only (`pip freeze` before and after in
+    `scratch/napari-foambryo/logs/`: nothing already installed changed). Parameters chosen on the true mask
+    (`tune_a_membrane_segmentation_of_case_000.py`): `spot_sigma=8`, `outline_sigma=0`, the smallest that finds
+    all 6 cells (IoU 0.975–0.982).
+20. **The plugin labels the background 1, in six pieces.** Variant A uses it as it comes (*medium is label 1*): the
+    five other pieces become cells that touch the image box (cut cells; the mask report says so before Run,
+    "11 cells; 5 touch the image box"); the 18 true interfaces are all found (median error 0.074), with 23 extra
+    interfaces with the fake cells, and the reconstruction's peak memory is 7.7 GiB against 1.4 GiB. Variant B
+    sets the pieces that touch the image box to 1, the edit a user makes with napari's fill tool (simulated by
+    assigning the label; the rule uses no ground truth): 6 cells, median error 0.069. Matching segments to true
+    cells uses the true mask (largest overlap, IoU > 0.5) only for the comparison.
+21. **Two defects found by the manual check, fixed and tested**: the mask report did not follow a change of the
+    labels (it does now, painting included); with a swapped medium, editing the original segmentation did not
+    mark the run out of date (the run watches both layers now). Also found by G11 and fixed: the voxel size from
+    another layer (napari's `LayerList` has no `get`, which a lint suggestion had introduced), and the swapped copy
+    of a layer with a leading axis.
+22. **A worker's result arriving after its dock was closed** touched deleted Qt widgets (it aborted the
+    interpreter at the end of one test session); handlers now do nothing for a closed dock. The one commit made
+    on an unchecked log (a09cdd8: `tail` succeeded where pytest's exit code was not read) was re-run: 84 passed;
+    later commits are gated on pytest's own exit code.

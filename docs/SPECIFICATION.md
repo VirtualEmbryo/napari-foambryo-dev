@@ -509,6 +509,24 @@ Bitwise equality holds for the same inputs, the same library versions, the same 
 BLAS threads. The plugin sets nothing that changes them (no thread-count override, no random state). The child
 process inherits the environment.
 
+### 6.4 What foambryo made public, as built
+
+On `feature/public-helpers-for-front-ends` (four commits on the command's branch; the command's tests pass unchanged
+on the first three, and the fourth changes the one assertion on `foambryo mesh`'s output, which now starts with the
+mask report):
+
+| public name | module | the plugin uses it for |
+|---|---|---|
+| `read_segmentation_mask`, `check_segmentation_mask`, `SegmentationMaskError`, `segmentation_mask_report` (`SegmentationMaskReport`: `summary()`, `as_record()`) | `foambryo.segmentation_masks` | the mask checks, the mask report |
+| `reconstruct_mask(mask, spacing, *, spacing_unit, min_distance)` → `MaskReconstruction` (the mesh's arrays and the `.rec` file's bytes: `mesh()`, `write_rec(path)`, `summary()`) | `foambryo.io`, `foambryo` | Reconstruct (in the child process), Export's `mesh.rec` |
+| `infer_tensions_then_pressures(mesh, …)` → `InferenceOutcome` (tensions, pressures, solve records, status, error, the `infer_forces` call as text) | `foambryo.force_inference`, `foambryo` | Infer (one mesh) |
+| the tables, `infer_run_record`, `ensemble_run_record`, `ensemble_library_call`, `option_name`, `TENSION_METHODS`, `PRESSURE_METHODS`, `DIAGNOSTICS`, `library_versions`, `WarningCollector`, `read_rec_metadata`, `infer_units` | `foambryo.results` (over `_result_tables`) | Export, *Export CSV*, the warnings |
+| the colour scales and `save_colour_bars` | `foambryo.colour_scales` (over `_colour_scales`) | the layers' colours, the colour bars |
+| `infer_tensions_over_seeds(progress=…)` | `foambryo.seed_ensembles` | the ensemble's progress |
+| `PressureComputationMethod.has_crop_face_formulation` | `foambryo.pressure_inference` | Infer's pressure methods on a cropped mesh |
+
+The private modules keep working under their old names, so that other branches rebase cleanly.
+
 ---
 
 ## 7. Packaging
