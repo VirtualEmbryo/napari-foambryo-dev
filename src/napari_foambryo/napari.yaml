@@ -1,0 +1,71 @@
+name: napari-foambryo
+display_name: foambryo
+contributions:
+  commands:
+    - id: napari-foambryo.reconstruct_widget
+      title: Reconstruct a mask's mesh
+      python_name: napari_foambryo._widgets:ReconstructWidget
+    - id: napari-foambryo.infer_widget
+      title: Infer tensions and pressures
+      python_name: napari_foambryo._widgets:InferWidget
+    - id: napari-foambryo.results_widget
+      title: Results of foambryo
+      python_name: napari_foambryo._widgets:ResultsWidget
+    - id: napari-foambryo.export_widget
+      title: Export foambryo's files
+      python_name: napari_foambryo._widgets:ExportWidget
+    - id: napari-foambryo.reconstruct_selected_layer
+      title: Reconstruct with foambryo
+      python_name: napari_foambryo._commands:reconstruct_selected_layer
+    - id: napari-foambryo.get_reader
+      title: Open a multimaterial mesh (.rec)
+      python_name: napari_foambryo._io:get_reader
+    - id: napari-foambryo.write_rec
+      title: Save a foambryo mesh as .rec
+      python_name: napari_foambryo._io:write_rec
+    - id: napari-foambryo.sample_case_000
+      title: Benchmark case 000
+      python_name: napari_foambryo._sample_data:benchmark_case_000
+    - id: napari-foambryo.sample_foam_cubic
+      title: Generated foam
+      python_name: napari_foambryo._sample_data:foam_cubic
+    - id: napari-foambryo.sample_foam_anisotropic
+      title: Generated foam, z step 2x
+      python_name: napari_foambryo._sample_data:foam_anisotropic
+    - id: napari-foambryo.sample_foam_cropped
+      title: Generated foam, cut by the image box
+      python_name: napari_foambryo._sample_data:foam_cropped
+  widgets:
+    - command: napari-foambryo.reconstruct_widget
+      display_name: Reconstruct
+    - command: napari-foambryo.infer_widget
+      display_name: Infer
+    - command: napari-foambryo.results_widget
+      display_name: Results
+    - command: napari-foambryo.export_widget
+      display_name: Export
+  menus:
+    napari/layers/measure:
+      - command: napari-foambryo.reconstruct_selected_layer
+  readers:
+    - command: napari-foambryo.get_reader
+      filename_patterns: ["*.rec", "*.arec"]
+      accepts_directories: false
+  writers:
+    - command: napari-foambryo.write_rec
+      layer_types: ["surface"]
+      filename_extensions: [".rec"]
+      display_name: foambryo mesh
+  sample_data:
+    - key: benchmark_case_000
+      display_name: Benchmark case 000 (6 cells, true tensions known)
+      command: napari-foambryo.sample_case_000
+    - key: foam_cubic
+      display_name: Generated foam (12 cells, cubic voxels)
+      command: napari-foambryo.sample_foam_cubic
+    - key: foam_anisotropic
+      display_name: Generated foam (z step 2x)
+      command: napari-foambryo.sample_foam_anisotropic
+    - key: foam_cropped
+      display_name: Generated foam (cut by the image box)
+      command: napari-foambryo.sample_foam_cropped
