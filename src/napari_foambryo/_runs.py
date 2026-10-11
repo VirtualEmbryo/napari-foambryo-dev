@@ -30,12 +30,23 @@ if TYPE_CHECKING:
     from foambryo.force_inference import InferenceOutcome
     from foambryo.io import MaskReconstruction
 
-__all__ = ["EXPORT_OUTPUTS", "InferenceOptions", "Run", "SourceMask", "export_run", "infer_on_mesh"]
+__all__ = [
+    "ENSEMBLE_FOLDER",
+    "EXPORT_OUTPUTS",
+    "EnsembleOptions",
+    "InferenceOptions",
+    "Run",
+    "SourceMask",
+    "export_run",
+    "infer_on_mesh",
+]
 
 PLUGIN = "napari-foambryo"
 MESH_FILE = "mesh.rec"
 MASK_FILE = "mask.npz"
 COLOUR_BARS = "colour_bars.png"
+#: The subfolder of a seed ensemble's files (those of `foambryo infer-over-seeds`).
+ENSEMBLE_FOLDER = "seed-ensemble"
 #: Every file Export may write, and so the only ones it replaces.
 EXPORT_OUTPUTS = (MESH_FILE, *tables.INFER_OUTPUTS, COLOUR_BARS, MASK_FILE)
 
@@ -118,6 +129,58 @@ class InferenceOptions:
         ]
 
 
+@dataclass(frozen=True)
+class EnsembleOptions:
+    """The seed-ensemble options, as `foambryo infer-over-seeds` spells them."""
+
+    seeds: int
+    tension_method: str
+    combine: str
+    angle_reading: str
+    max_workers: int
+
+    def as_record(self, min_distance: int) -> dict[str, Any]:
+        """The `options` entry of the ensemble's `run.json`, as `foambryo infer-over-seeds` writes it."""
+        return {
+            "seeds": self.seeds,
+            "combine": self.combine,
+            "angle_reading": self.angle_reading,
+            "tension_method": self.tension_method,
+            "min_distance": min_distance,
+            "max_workers": self.max_workers,
+        }
+
+    def library_kwargs(self, mask: np.ndarray, spacing: tuple[float, float, float], min_distance: int) -> dict:
+        """The keyword arguments of `infer_tensions_over_seeds`, as the command passes them."""
+        return {
+            "mask": mask,
+            "seeds": list(range(self.seeds)),
+            "min_distance": min_distance,
+            "mode": tables.TENSION_METHODS[self.tension_method],
+            "angle_reading": self.angle_reading,
+            "combine": self.combine,
+            "max_workers": self.max_workers,
+            "spacing": spacing,
+        }
+
+    def command_arguments(self, min_distance: int) -> list[str]:
+        """The `foambryo infer-over-seeds` options that give the same numbers."""
+        return [
+            "--seeds",
+            str(self.seeds),
+            "--min-distance",
+            str(min_distance),
+            "--tension-method",
+            self.tension_method,
+            "--combine",
+            self.combine,
+            "--angle-reading",
+            self.angle_reading,
+            "--max-workers",
+            str(self.max_workers),
+        ]
+
+
 def infer_on_mesh(mesh: DcelData, options: InferenceOptions) -> tuple[InferenceOutcome, list[dict], float]:
     """`foambryo.infer_tensions_then_pressures` with the widget's options; its warnings counted; its time.
 
@@ -172,6 +235,13 @@ class Run:
     infer_warnings: list = field(default_factory=list)
     infer_seconds: float = 0.0
     infer_date: str = ""
+    ensemble_options: EnsembleOptions | None = None
+    ensemble: Any = None
+    ensemble_warnings: list = field(default_factory=list)
+    ensemble_seconds: float = 0.0
+    ensemble_date: str = ""
+    ensemble_peak_rss_bytes: int = 0
+    last_inference: str = ""
     out_of_date: bool = False
 
     def equivalent_commands(self) -> list[str]:
@@ -186,6 +256,25 @@ class Run:
             )
         if self.options is not None:
             commands.append(" ".join(["foambryo infer", MESH_FILE, "-o", ".", *self.options.command_arguments()]))
+        if self.ensemble_options is not None and self.source is not None and self.reconstruction is not None:
+            spacing = " ".join(repr(float(v)) for v in self.source.spacing)
+            unit = shlex.quote(self.source.spacing_unit)
+            arguments = self.ensemble_options.command_arguments(self.reconstruction.min_distance)
+            commands.append(
+                " ".join(
+                    [
+                        "foambryo infer-over-seeds",
+                        MASK_FILE,
+                        "-o",
+                        ENSEMBLE_FOLDER,
+                        "--spacing",
+                        spacing,
+                        "--spacing-unit",
+                        unit,
+                        *arguments,
+                    ]
+                )
+            )
         return commands
 
 
@@ -199,7 +288,7 @@ def export_run(run: Run, folder: Path, *, include_mask: bool = False, overwrite:
     if run.out_of_date:
         message = "the labels changed after the reconstruction: reconstruct again before exporting"
         raise ValueError(message)
-    if run.outcome is None or run.options is None:
+    if (run.outcome is None or run.options is None) and run.ensemble is None:
         message = "nothing to export yet: run Infer first"
         raise ValueError(message)
     folder = Path(folder)
@@ -211,9 +300,13 @@ def export_run(run: Run, folder: Path, *, include_mask: bool = False, overwrite:
     for name in existing:
         (folder / name).unlink()
 
-    outcome, options = run.outcome, run.options
     outputs = [MESH_FILE]
     (folder / MESH_FILE).write_bytes(run.rec_bytes)
+    if run.ensemble is not None:
+        outputs += [f"{ENSEMBLE_FOLDER}/{name}" for name in _export_ensemble(run, folder / ENSEMBLE_FOLDER)]
+    if run.outcome is None or run.options is None:
+        return _export_mask_and_record(run, folder, outputs, include_mask)
+    outcome, options = run.outcome, run.options
     write_mask = run.mask is not None and (include_mask or (run.source is not None and run.source.medium_label != 0))
     if write_mask:
         np.savez_compressed(
@@ -280,5 +373,81 @@ def export_run(run: Run, folder: Path, *, include_mask: bool = False, overwrite:
             "source_mask.sha256 (tick 'include the mask' to export it)"
         )
     record["exported"] = datetime.now(UTC).isoformat(timespec="seconds")
+    tables.write_run_record(folder / tables.RUN_RECORD, record)
+    return outputs
+
+
+def _export_ensemble(run: Run, folder: Path) -> list[str]:
+    """`foambryo infer-over-seeds`' files for the run's seed ensemble, in `folder`."""
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in tables.ENSEMBLE_OUTPUTS:
+        if (folder / name).exists():
+            (folder / name).unlink()
+    result, options = run.ensemble, run.ensemble_options
+    tables.write_ensemble_tension_table(folder / tables.TENSION_TABLE, result)
+    tables.write_per_seed_tension_table(folder / tables.PER_SEED_TENSION_TABLE, result.per_seed_tensions)
+    outputs = [tables.TENSION_TABLE, tables.PER_SEED_TENSION_TABLE, tables.RUN_RECORD]
+    source, min_distance = run.source, run.reconstruction.min_distance
+    record = tables.ensemble_run_record(
+        command=PLUGIN,
+        arguments=[],
+        date=run.ensemble_date,
+        elapsed_seconds=round(run.ensemble_seconds, 3),
+        input_record={
+            "path": MASK_FILE,
+            "sha256": source.sha256,
+            "bytes": None,
+            "shape": list(source.shape),
+            "spacing": list(source.spacing),
+            "spacing_unit": source.spacing_unit,
+            "spacing_from": source.spacing_from,
+        },
+        options=options.as_record(min_distance),
+        seeds=list(range(options.seeds)),
+        library_call=tables.ensemble_library_call(
+            n_seeds=options.seeds,
+            min_distance=min_distance,
+            mode=tables.TENSION_METHODS[options.tension_method],
+            angle_reading=options.angle_reading,
+            combine=options.combine,
+            max_workers=options.max_workers,
+            spacing=source.spacing,
+        ),
+        result=result,
+        length_unit=source.spacing_unit,
+        status="complete",
+        error=None,
+        warnings_summary=run.ensemble_warnings,
+        outputs=outputs,
+        versions=tables.library_versions(extra=("napari", PLUGIN)),
+    )
+    record["input_note"] = "the mask is identified by its array's SHA-256 (source_mask), not a file's"
+    record["source_mask"] = source.as_record()
+    record["peak_rss_bytes"] = run.ensemble_peak_rss_bytes
+    tables.write_run_record(folder / tables.RUN_RECORD, record)
+    return outputs
+
+
+def _export_mask_and_record(run: Run, folder: Path, outputs: list[str], include_mask: bool) -> list[str]:
+    """An export with a seed ensemble and no single-mesh inference: the mask on request, and a short record."""
+    if run.mask is not None and (include_mask or (run.source is not None and run.source.medium_label != 0)):
+        np.savez_compressed(
+            folder / MASK_FILE,
+            mask=run.mask,
+            spacing=np.array(run.source.spacing),
+            spacing_unit=np.array(run.source.spacing_unit),
+        )
+        outputs.append(MASK_FILE)
+    outputs.append(tables.RUN_RECORD)
+    record = {
+        "schema": tables.RUN_RECORD_SCHEMA,
+        "command": PLUGIN,
+        "note": f"only a seed ensemble was inferred: its files and run record are in {ENSEMBLE_FOLDER}/",
+        "versions": tables.library_versions(extra=("napari", PLUGIN)),
+        "source_mask": None if run.source is None else run.source.as_record(),
+        "equivalent_commands": run.equivalent_commands(),
+        "outputs": outputs,
+        "exported": datetime.now(UTC).isoformat(timespec="seconds"),
+    }
     tables.write_run_record(folder / tables.RUN_RECORD, record)
     return outputs

@@ -164,3 +164,50 @@ def test_painting_the_labels_marks_the_results_out_of_date(qtbot, viewer, docks,
     assert not export.export_button.isEnabled()
     assert viewer.layers[f"{layer.name} cells [out of date]"]
     assert export.export() == []
+
+
+def test_seed_ensemble_walk_shows_the_spread_on_the_displayed_mesh(qtbot, viewer, docks, tmp_path):
+    reconstruct, infer, results, export = docks
+    layer = _add(viewer, foam_cubic)
+    _reconstruct(qtbot, reconstruct, layer.name)
+    infer.mode_box.setCurrentText(infer.ENSEMBLE)
+    assert infer.pressure_box.isHidden()
+    assert "Estimate:" in infer.ensemble_estimate.text()
+    infer.seeds_box.setValue(2)
+    _infer(qtbot, infer)
+    assert infer.status.text().startswith("seed ensemble of 2 seeds"), infer.status.text()
+    names = [name for name in (lay.name for lay in viewer.layers) if "ensemble tensions" in name]
+    assert names == [f"{layer.name} ensemble tensions (2 seeds, shown on seed 42's mesh)"]
+    headers = [results.interfaces.horizontalHeaderItem(c).text() for c in range(results.interfaces.columnCount())]
+    assert headers[:8] == [
+        "label 1",
+        "label 2",
+        "ensemble tension",
+        "seed SD",
+        "relative seed SD",
+        "seeds found",
+        "found by fewer than half",
+        "on the displayed mesh",
+    ]
+    assert "lower bound on the error" in results.summary.text()
+    results.interfaces.selectRow(0)
+    export.folder.setText(str(tmp_path / "ensemble"))
+    assert "seed-ensemble/tensions.csv" in export.export()
+
+
+def test_the_memory_guard_needs_run_anyway(qtbot, viewer, docks, monkeypatch):
+    import psutil
+
+    class Tiny:
+        total = 2**30
+        available = 2**29
+
+    monkeypatch.setattr(psutil, "virtual_memory", lambda: Tiny)
+    reconstruct, _, _, _ = docks
+    layer = _add(viewer, benchmark_case_000)
+    reconstruct.select_layer(layer.name)
+    assert "this machine has 1 GiB" in reconstruct.estimate_label.text()
+    assert reconstruct.run_anyway.isVisibleTo(reconstruct)
+    assert not reconstruct.run_button.isEnabled()
+    reconstruct.run_anyway.setChecked(True)
+    assert reconstruct.run_button.isEnabled()

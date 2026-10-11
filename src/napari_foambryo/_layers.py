@@ -193,3 +193,40 @@ def _label_palette(groups: np.ndarray) -> np.ndarray:
 
     cmap = colormaps["tab20"]
     return np.asarray(cmap((np.asarray(groups) % 20) / 19.0), dtype=np.float32)
+
+
+def ensemble_layer_name(base_name: str, n_seeds: int) -> str:
+    """The ensemble layer's name says what it shows, and on which mesh."""
+    return f"{base_name} ensemble tensions ({n_seeds} seeds, shown on seed 42's mesh)"
+
+
+def add_ensemble_layer(
+    viewer: Any,  # noqa: ANN401 - a napari viewer
+    run: Run,
+    base_name: str,
+    source_layer: Any = None,  # noqa: ANN401
+    spacing_used: tuple[float, float, float] | None = None,
+) -> str:
+    """Show a seed ensemble's tensions on the run's own mesh (the reconstruction's default seed, 42).
+
+    The ensemble has no mesh of its own (decision Q4): its tensions are matched to the displayed mesh by label
+    pair; an interface of the mesh that the ensemble did not determine is grey; an ensemble interface absent from
+    the mesh is only in the table. The colours are the viewer's tension scale over the ensemble's tensions.
+    """
+    frame = _frame(source_layer, spacing_used)
+    result = run.ensemble
+    copy, keys = interface_copy(run.mesh)
+    values, colours = tension_vertex_colours(run.mesh, copy, keys, result.tensions, None)
+    name = ensemble_layer_name(base_name, len(result.seeds))
+    for layer in list(viewer.layers):
+        if layer.metadata.get("foambryo", {}).get("kind") == "ensemble tensions" and layer.name.startswith(base_name):
+            viewer.layers.remove(layer)
+    _replace(
+        viewer,
+        name,
+        (copy.vertices, copy.faces),
+        vertex_colors=colours,
+        metadata=_metadata(run, "ensemble tensions", copy, interfaces=keys, base_colours=colours, values=values),
+        **frame,
+    )
+    return name

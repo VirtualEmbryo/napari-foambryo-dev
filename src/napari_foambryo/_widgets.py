@@ -44,10 +44,17 @@ from qtpy.QtWidgets import (
 from superqt import QCollapsible
 
 from napari_foambryo._estimate import estimate_reconstruction, memory_verdict
-from napari_foambryo._layers import RUNS, add_mesh_layers, add_result_layers, highlight, new_run_id
+from napari_foambryo._layers import (
+    RUNS,
+    add_ensemble_layer,
+    add_mesh_layers,
+    add_result_layers,
+    highlight,
+    new_run_id,
+)
 from napari_foambryo._masks import array_sha256, prepare_mask, swap_medium_label
 from napari_foambryo._runner import ChildCancelledError, ChildFailedError, run_in_child
-from napari_foambryo._runs import InferenceOptions, Run, SourceMask, export_run, infer_on_mesh
+from napari_foambryo._runs import EnsembleOptions, InferenceOptions, Run, SourceMask, export_run, infer_on_mesh
 from napari_foambryo._session import RunDisplay, session_for
 from napari_foambryo._spacing import THIS_LAYER, TYPED, resolve_spacing
 
@@ -406,16 +413,27 @@ def _layer_origin(layer: Any) -> dict[str, Any]:  # noqa: ANN401
 # Infer
 # ---------------------------------------------------------------------------------------------
 class InferWidget(QWidget):
-    """The tension and pressure methods (the command's spellings), Run."""
+    """One mesh (the tension and pressure methods) or a seed ensemble; Run, Cancel."""
+
+    ONE_MESH = "one mesh"
+    ENSEMBLE = "seed ensemble"
 
     def __init__(self, napari_viewer: Any) -> None:  # noqa: ANN401
-        """Build the form; defaults are `infer_forces`'s."""
+        """Build the form; defaults are `infer_forces`'s and `infer_tensions_over_seeds`'s."""
+        from foambryo import DEFAULT_ENSEMBLE_SEEDS, infer_tensions_over_seeds
+        from foambryo.second_order_angle_reading import ANGLE_READINGS
+        from foambryo.seed_ensembles import COMBINE_OPTIONS
+
         super().__init__()
         self.viewer = napari_viewer
         self.session = session_for(napari_viewer)
         self._worker = None
+        self._cancel = threading.Event()
+        self._progress = {"text": "", "started": 0.0, "rss": 0}
         self.mesh_box = QComboBox()
         self.mesh_box.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.mode_box = QComboBox()
+        self.mode_box.addItems([self.ONE_MESH, self.ENSEMBLE])
         self.tension_box = QComboBox()
         self.tension_box.addItems(list(tables.TENSION_METHODS))
         self.tension_box.setCurrentText(tables.option_name(_signature_default(infer_forces, "mode_tension")))
@@ -431,7 +449,23 @@ class InferWidget(QWidget):
         self.diagnostics_box.addItems(list(tables.DIAGNOSTICS))
         library = _signature_default(infer_forces, "diagnostics")
         self.diagnostics_box.setCurrentText(next(k for k, v in tables.DIAGNOSTICS.items() if v is library))
+        self.seeds_box = QSpinBox()
+        self.seeds_box.setRange(2, 64)
+        self.seeds_box.setValue(len(DEFAULT_ENSEMBLE_SEEDS))
+        self.combine_box = QComboBox()
+        self.combine_box.addItems(list(COMBINE_OPTIONS))
+        self.combine_box.setCurrentText(_signature_default(infer_tensions_over_seeds, "combine"))
+        self.reading_box = QComboBox()
+        self.reading_box.addItems(list(ANGLE_READINGS))
+        self.reading_box.setCurrentText(_signature_default(infer_tensions_over_seeds, "angle_reading"))
+        self.workers_box = QSpinBox()
+        self.workers_box.setRange(1, 64)
+        self.workers_box.setValue(int(_signature_default(infer_tensions_over_seeds, "max_workers")))
+        self.ensemble_estimate = QLabel()
+        self.ensemble_estimate.setWordWrap(True)
         self.run_button = QPushButton("Infer")
+        self.cancel_button = QPushButton("Cancel")
+        self.cancel_button.setEnabled(False)
         self.mesh_info = QLabel()
         self.mesh_info.setWordWrap(True)
         self.status = QLabel()
@@ -439,23 +473,51 @@ class InferWidget(QWidget):
 
         form = QFormLayout()
         form.addRow("Mesh", self.mesh_box)
+        form.addRow("Mode", self.mode_box)
         form.addRow("Tension method", self.tension_box)
-        form.addRow("Pressure method", self.pressure_box)
-        advanced = QWidget()
-        advanced_form = QFormLayout(advanced)
+        self.pressure_label = QLabel("Pressure method")
+        form.addRow(self.pressure_label, self.pressure_box)
+        self.ensemble_form = QWidget()
+        ensemble_form = QFormLayout(self.ensemble_form)
+        ensemble_form.setContentsMargins(0, 0, 0, 0)
+        ensemble_form.addRow("Seeds (0 … N−1), N", self.seeds_box)
+        ensemble_form.addRow("Workers (processes)", self.workers_box)
+        ensemble_form.addRow(self.ensemble_estimate)
+        self.one_mesh_advanced = QWidget()
+        advanced_form = QFormLayout(self.one_mesh_advanced)
         advanced_form.addRow("Mean tension", self.mean_tension)
         advanced_form.addRow("Base pressure (medium)", self.base_pressure)
         advanced_form.addRow("Solver", self.solver_box)
         advanced_form.addRow("Diagnostics", self.diagnostics_box)
+        self.ensemble_advanced = QWidget()
+        ensemble_advanced_form = QFormLayout(self.ensemble_advanced)
+        ensemble_advanced_form.addRow("Combine", self.combine_box)
+        ensemble_advanced_form.addRow("Angle reading", self.reading_box)
+        advanced = QWidget()
+        advanced_layout = QVBoxLayout(advanced)
+        advanced_layout.addWidget(self.one_mesh_advanced)
+        advanced_layout.addWidget(self.ensemble_advanced)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
+        layout.addWidget(self.ensemble_form)
         layout.addWidget(_folded("Advanced", advanced))
         layout.addWidget(self.mesh_info)
-        layout.addWidget(self.run_button)
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.run_button)
+        buttons.addWidget(self.cancel_button)
+        layout.addLayout(buttons)
         layout.addWidget(self.status)
         layout.addStretch(1)
+
+        self._timer = QTimer(self)
+        self._timer.setInterval(500)
+        self._timer.timeout.connect(self._show_progress)
         self.run_button.clicked.connect(self.start)
+        self.cancel_button.clicked.connect(self._cancel.set)
         self.mesh_box.currentIndexChanged.connect(self._mesh_changed)
+        self.mode_box.currentIndexChanged.connect(self._mesh_changed)
+        self.seeds_box.valueChanged.connect(self._mesh_changed)
+        self.workers_box.valueChanged.connect(self._mesh_changed)
         self.session.run_added.connect(self._refill)
         self.session.out_of_date.connect(self._refill)
         napari_viewer.layers.events.inserted.connect(self._refill)
@@ -488,8 +550,18 @@ class InferWidget(QWidget):
         self.mesh_box.blockSignals(False)
         self._mesh_changed()
 
+    def ensemble_mode(self) -> bool:
+        """Whether the form is in seed-ensemble mode."""
+        return self.mode_box.currentText() == self.ENSEMBLE
+
     def _mesh_changed(self, *_args: Any) -> None:  # noqa: ANN401
         run = RUNS.get(self.mesh_box.currentData() or "")
+        ensemble = self.ensemble_mode()
+        self.pressure_label.setVisible(not ensemble)
+        self.pressure_box.setVisible(not ensemble)
+        self.ensemble_form.setVisible(ensemble)
+        self.one_mesh_advanced.setVisible(not ensemble)
+        self.ensemble_advanced.setVisible(ensemble)
         cropped = run is not None and bool(np.any(run.mesh.crop_faces))
         model = self.pressure_box.model()
         for index, member in enumerate(tables.PRESSURE_METHODS.values()):
@@ -497,21 +569,50 @@ class InferWidget(QWidget):
             model.item(index).setEnabled(allowed)
             if not allowed and self.pressure_box.currentIndex() == index:
                 self.pressure_box.setCurrentText(tables.option_name(_signature_default(infer_forces, "mode_pressure")))
-        self.run_button.setEnabled(run is not None and self._worker is None)
-        if run is not None and cropped:
+        possible = run is not None and (not ensemble or run.mask is not None)
+        self.run_button.setEnabled(possible and self._worker is None)
+        if run is None:
+            _status(self.mesh_info, "Reconstruct a mask, or open a .rec file, first.")
+        elif ensemble and run.mask is None:
+            _status(
+                self.mesh_info,
+                "A seed ensemble reconstructs the mask again at each seed: it needs a mesh "
+                "reconstructed here, not one opened from a file.",
+                AMBER,
+            )
+        elif cropped and not ensemble:
             _status(
                 self.mesh_info,
                 f"This mesh has crop faces ({len(run.mesh.cut_cells)} cut cells): only pressure "
                 "methods with a formulation for crop faces are offered; cut cells' pressures are "
                 "nan.",
             )
-        elif run is None:
-            _status(self.mesh_info, "Reconstruct a mask, or open a .rec file, first.")
         else:
             self.mesh_info.clear()
+        if ensemble and run is not None and run.source is not None:
+            self._show_ensemble_estimate(run)
+
+    def _show_ensemble_estimate(self, run: Run) -> None:
+        import math
+
+        import psutil
+
+        per_seed = estimate_reconstruction(tuple(run.source.shape), run.source.spacing)
+        seeds, workers = self.seeds_box.value(), self.workers_box.value()
+        rounds = math.ceil(seeds / workers)
+        memory = psutil.virtual_memory()
+        suggested = max(1, int(memory.available / 2**30 // max(per_seed.peak_gib[2], 1e-9)))
+        text = (
+            f"Estimate: {rounds} round(s) of {workers} seed(s): about {rounds * per_seed.seconds[1] / 60:.1f} min "
+            f"({rounds * per_seed.seconds[0] / 60:.1f}–{rounds * per_seed.seconds[2] / 60:.1f}) and "
+            f"{workers * per_seed.peak_gib[1]:.1f} GiB ({workers * per_seed.peak_gib[2]:.1f} at most); "
+            f"{memory.available / 2**30:.0f} GiB free allows about {suggested} worker(s). "
+            "The seed spread is a lower bound on the error, not an error bar."
+        )
+        _status(self.ensemble_estimate, text, AMBER if workers > suggested else None)
 
     def options(self) -> InferenceOptions:
-        """The form's options."""
+        """The one-mesh options."""
         return InferenceOptions(
             tension_method=self.tension_box.currentText(),
             pressure_method=self.pressure_box.currentText(),
@@ -521,25 +622,37 @@ class InferWidget(QWidget):
             diagnostics=self.diagnostics_box.currentText(),
         )
 
+    def ensemble_options(self) -> EnsembleOptions:
+        """The seed-ensemble options."""
+        return EnsembleOptions(
+            seeds=self.seeds_box.value(),
+            tension_method=self.tension_box.currentText(),
+            combine=self.combine_box.currentText(),
+            angle_reading=self.reading_box.currentText(),
+            max_workers=self.workers_box.value(),
+        )
+
     def start(self) -> None:
-        """Infer the tensions, then the pressures, of the chosen mesh in a worker thread."""
+        """Infer on the chosen mesh: one mesh in a worker thread (a child process with the dense solver), or a seed
+        ensemble in a child process."""
         run = RUNS.get(self.mesh_box.currentData() or "")
         if run is None:
+            return
+        self.session.current = run.run_id
+        if self.ensemble_mode():
+            self._start_ensemble(run)
             return
         try:
             options = self.options()
         except ValueError as error:
             _status(self.status, f"mean tension and base pressure must be numbers: {error}", RED)
             return
-        self.session.current = run.run_id
-        self.run_button.setEnabled(False)
-        _status(self.status, "Inferring the tensions, then the pressures…")
         started = datetime.now(UTC).isoformat(timespec="seconds")
 
         def returned(result: Any) -> None:  # noqa: ANN401
-            outcome, warnings_summary, seconds = result
+            outcome, warnings_summary, seconds = result.value if hasattr(result, "value") else result
             run.options, run.outcome, run.infer_warnings = options, outcome, warnings_summary
-            run.infer_seconds, run.infer_date = seconds, started
+            run.infer_seconds, run.infer_date, run.last_inference = seconds, started, "one mesh"
             display = self.session.displays[run.run_id]
             for name in add_result_layers(
                 self.viewer, run, display.base_name, display.source_layer, display.spacing_used
@@ -548,23 +661,110 @@ class InferWidget(QWidget):
                 if layer not in display.layers:
                     display.layers.append(layer)
             shown = _show_one_result(display.layers)
-            self._worker = None
             colour = None if outcome.status == "complete" else (AMBER if outcome.tensions is not None else RED)
             text = f"{outcome.status} in {seconds:.1f} s"
             if outcome.error:
                 text += f": {outcome.error}"
             if shown:
                 text += f". Shown: {shown}; the other result layers are hidden (tick their eye to show them)."
-            _status(self.status, text, colour)
-            self._mesh_changed()
+            self._finish(text, colour)
             self.session.results_changed.emit(run.run_id)
 
-        def errored(error: BaseException) -> None:
-            self._worker = None
-            _status(self.status, f"Failed: {type(error).__name__}: {error}", RED)
-            self._mesh_changed()
+        if options.solver == "dense":  # the one solve measured in minutes on a large tissue: cancellable
+            self._begin("Inferring with the dense solver in a child process…")
+            self._worker = _start_worker(
+                self._in_child,
+                "napari_foambryo._runs:infer_on_mesh",
+                {"mesh": run.mesh, "options": options},
+                False,
+                on_returned=returned,
+                on_errored=self._errored,
+            )
+        else:
+            self._begin("Inferring the tensions, then the pressures…", cancellable=False)
+            self._worker = _start_worker(
+                infer_on_mesh, run.mesh, options, on_returned=returned, on_errored=self._errored
+            )
 
-        self._worker = _start_worker(infer_on_mesh, run.mesh, options, on_returned=returned, on_errored=errored)
+    def _start_ensemble(self, run: Run) -> None:
+        options = self.ensemble_options()
+        started = datetime.now(UTC).isoformat(timespec="seconds")
+        kwargs = options.library_kwargs(run.mask, run.source.spacing, run.reconstruction.min_distance)
+
+        def returned(result: Any) -> None:  # noqa: ANN401
+            run.ensemble, run.ensemble_options = result.value, options
+            run.ensemble_warnings, run.ensemble_seconds = result.warnings_summary, result.seconds
+            run.ensemble_date, run.ensemble_peak_rss_bytes = started, result.peak_rss_bytes
+            run.last_inference = "ensemble"
+            display = self.session.displays[run.run_id]
+            name = add_ensemble_layer(self.viewer, run, display.base_name, display.source_layer, display.spacing_used)
+            layer = self.viewer.layers[name]
+            if layer not in display.layers:
+                display.layers.append(layer)
+            for other in display.layers:
+                if other.metadata.get("foambryo", {}).get("kind") in ("cells", "tensions", "pressures"):
+                    other.visible = False
+            flagged = sum(result.value.found_by_fewer_than_half_the_seeds.values())
+            self._finish(
+                f"seed ensemble of {options.seeds} seeds in {result.seconds:.1f} s, peak "
+                f"{result.peak_rss_bytes / 2**30:.2f} GiB: {len(result.value.tensions)} interfaces, "
+                f"{flagged} found by fewer than half of the seeds. Shown: {name}."
+            )
+            self.session.results_changed.emit(run.run_id)
+
+        self._begin(f"Seed ensemble: 0 of {options.seeds} seeds done…")
+        self._worker = _start_worker(
+            self._in_child,
+            "foambryo.seed_ensembles:infer_tensions_over_seeds",
+            kwargs,
+            True,
+            on_returned=returned,
+            on_errored=self._errored,
+        )
+
+    def _in_child(self, target: str, kwargs: dict, with_progress: bool) -> Any:  # noqa: ANN401
+        def progress(done: int, total: int, seed: int) -> None:
+            self._progress["text"] = f"Seed ensemble: {done} of {total} seeds done (last: seed {seed})"
+
+        return run_in_child(
+            target,
+            kwargs,
+            should_cancel=self._cancel.is_set,
+            on_progress=progress if with_progress else None,
+            on_memory=lambda rss: self._progress.update(rss=rss),
+        )
+
+    def _begin(self, text: str, *, cancellable: bool = True) -> None:
+        self._cancel.clear()
+        self._progress.update(text=text, started=time.perf_counter(), rss=0)
+        self.run_button.setEnabled(False)
+        self.cancel_button.setEnabled(cancellable)
+        _status(self.status, text)
+        if cancellable:
+            self._timer.start()
+
+    def _show_progress(self) -> None:
+        elapsed = time.perf_counter() - self._progress["started"]
+        _status(
+            self.status,
+            f"{self._progress['text']} — {elapsed:.0f} s, {self._progress['rss'] / 2**30:.2f} GiB "
+            "now. Cancel stops it.",
+        )
+
+    def _finish(self, text: str, colour: str | None = None) -> None:
+        self._timer.stop()
+        self._worker = None
+        self.cancel_button.setEnabled(False)
+        _status(self.status, text, colour)
+        self._mesh_changed()
+
+    def _errored(self, error: BaseException) -> None:
+        if isinstance(error, ChildCancelledError):
+            self._finish("Cancelled: nothing was changed.", AMBER)
+        elif isinstance(error, ChildFailedError):
+            self._finish(f"The library refused: {error.message}", RED)
+        else:
+            self._finish(f"Failed: {type(error).__name__}: {error}", RED)
 
 
 def _show_one_result(layers: list) -> str:
@@ -620,6 +820,7 @@ class ResultsWidget(QWidget):
         self.session.out_of_date.connect(lambda run_id: self.show_run(self.run_id))
         self._bars_file: Path | None = None
         self._watched_labels: Any = None
+        self.showing = "one mesh"
 
     @staticmethod
     def _table() -> QTableWidget:
@@ -634,8 +835,14 @@ class ResultsWidget(QWidget):
         """Fill the tables and the colour bars from a run's last inference."""
         self.run_id = run_id
         run = RUNS.get(run_id or "")
-        if run is None or run.outcome is None:
+        if run is None:
             return
+        if run.last_inference == "ensemble" and run.ensemble is not None:
+            self._show_ensemble(run)
+            return
+        if run.outcome is None:
+            return
+        self.showing = "one mesh"
         outcome = run.outcome
         truth_t, truth_p = _truth_of(self.session.displays[run.run_id].source_layer)
         tensions = outcome.tensions or {}
@@ -699,6 +906,77 @@ class ResultsWidget(QWidget):
         self._draw_bars(run)
         self._watch_labels(run)
 
+    def _show_ensemble(self, run: Run) -> None:
+        """The seed ensemble's table: its tension, the seed spread, how many seeds found each interface."""
+        from napari_foambryo._display import interface_keys
+
+        self.showing = "ensemble"
+        result = run.ensemble
+        on_mesh = set(interface_keys(run.mesh)[1])
+        truth_t, _ = _truth_of(self.session.displays[run.run_id].source_layer)
+        factor = _scale_factor(result.tensions, truth_t) if truth_t else None
+        n_seeds = len(result.seeds)
+        columns = [
+            "label 1",
+            "label 2",
+            "ensemble tension",
+            "seed SD",
+            "relative seed SD",
+            "seeds found",
+            "found by fewer than half",
+            "on the displayed mesh",
+        ]
+        if truth_t:
+            columns += ["true tension", "relative error (scale-matched)"]
+        rows = []
+        for key in sorted(result.tensions):
+            t = result.tensions[key]
+            few = bool(result.found_by_fewer_than_half_the_seeds[key])
+            shown = key in on_mesh
+            if self.flagged_only.isChecked() and not (few or not shown or not np.isfinite(t)):
+                continue
+            row = [
+                int(key[0]),
+                int(key[1]),
+                float(t),
+                float(result.tension_seed_sd[key]),
+                float(result.relative_tension_seed_sd[key]),
+                f"{result.n_seeds_found[key]} of {n_seeds}",
+                "yes" if few else "",
+                "" if shown else "no (table only)",
+            ]
+            if truth_t:
+                true = truth_t.get(key, float("nan"))
+                row += [true, abs(t * factor - true) / true if np.isfinite(t) and true else float("nan")]
+            rows.append(row)
+        self._fill(self.interfaces, columns, rows)
+        self._fill(self.cells, ["a seed ensemble has no pressures: no single mesh carries them"], [])
+        self.tabs.setCurrentWidget(self.interfaces)
+        flagged = sum(result.found_by_fewer_than_half_the_seeds.values())
+        stale = " — OUT OF DATE: the labels changed; reconstruct again" if run.out_of_date else ""
+        text = (
+            f"Seed ensemble of {n_seeds} seeds ({result.combine}, {result.mode.name}): {len(result.tensions)} "
+            f"interfaces, {flagged} found by fewer than half of the seeds; shown on seed 42's mesh. The seed SD "
+            f"is a lower bound on the error, not an error bar.{stale}"
+        )
+        if truth_t:
+            errors = [
+                abs(t * factor - truth_t[k]) / truth_t[k]
+                for k, t in result.tensions.items()
+                if k in truth_t and np.isfinite(t) and truth_t[k]
+            ]
+            text += f" True tensions known: median relative error {np.median(errors):.3f} after matching the scale."
+        _status(self.summary, text, AMBER if run.out_of_date else None)
+        self.warnings.setPlainText(
+            "\n".join(
+                f"{w['category']}: {w['message']}" + (f" ({w['count']} times)" if w["count"] > 1 else "")
+                for w in [*run.reconstruct_warnings, *run.ensemble_warnings]
+            )
+            or "none"
+        )
+        self._draw_bars(run)
+        self._watch_labels(run)
+
     @staticmethod
     def _fill(table: QTableWidget, columns: list[str], rows: list[list]) -> None:
         table.setSortingEnabled(False)
@@ -723,14 +1001,18 @@ class ResultsWidget(QWidget):
     def _draw_bars(self, run: Run) -> None:
         import tempfile
 
-        outcome = run.outcome
-        if outcome is None or outcome.tensions is None or not any(np.isfinite(v) for v in outcome.tensions.values()):
+        if self.showing == "ensemble":
+            tensions, pressures = run.ensemble.tensions, None
+        else:
+            tensions = None if run.outcome is None else run.outcome.tensions
+            pressures = None if run.outcome is None else run.outcome.pressures
+        if tensions is None or not any(np.isfinite(v) for v in tensions.values()):
             self.bars.clear()
             return
         if self._bars_file is None:
             self._bars_folder = tempfile.TemporaryDirectory(prefix="napari_foambryo_bars_")
             self._bars_file = Path(self._bars_folder.name) / "colour_bars.png"
-        save_colour_bars(run.mesh, outcome.tensions, outcome.pressures, self._bars_file)
+        save_colour_bars(run.mesh, tensions, pressures, self._bars_file)
         pixmap = QPixmap(str(self._bars_file))
         self.bars.setPixmap(pixmap.scaledToWidth(min(420, pixmap.width()), Qt.TransformationMode.SmoothTransformation))
 
@@ -744,7 +1026,7 @@ class ResultsWidget(QWidget):
         return None
 
     def _select_interface(self) -> None:
-        layer = self._layer("tensions")
+        layer = self._layer("ensemble tensions" if self.showing == "ensemble" else "tensions")
         rows = self.interfaces.selectionModel().selectedRows()
         if layer is None:
             return
@@ -772,7 +1054,12 @@ class ResultsWidget(QWidget):
     def _show_only(self, layer: Any) -> None:  # noqa: ANN401
         """Show `layer` and hide the run's other result layers (they share the geometry)."""
         for other in self.session.displays[self.run_id].layers:
-            if other.metadata.get("foambryo", {}).get("kind") in ("cells", "tensions", "pressures"):
+            if other.metadata.get("foambryo", {}).get("kind") in (
+                "cells",
+                "tensions",
+                "pressures",
+                "ensemble tensions",
+            ):
                 other.visible = other is layer
 
     def select_cell_row(self, label: int) -> None:
@@ -802,7 +1089,7 @@ class ResultsWidget(QWidget):
 
     def _export_csv(self) -> None:
         run = RUNS.get(self.run_id or "")
-        if run is None or run.outcome is None:
+        if run is None or (run.outcome is None and run.ensemble is None):
             return
         cells = self.tabs.currentWidget() is self.cells
         name = tables.PRESSURE_TABLE if cells else tables.TENSION_TABLE
@@ -813,6 +1100,10 @@ class ResultsWidget(QWidget):
     def write_csv(self, path: Path, *, cells: bool) -> None:
         """Write the current run's tensions or pressures in the command's format (exact floats)."""
         run = RUNS[self.run_id or ""]
+        if self.showing == "ensemble":
+            if not cells:
+                tables.write_ensemble_tension_table(path, run.ensemble)
+            return
         if cells and run.outcome.pressures is not None:
             tables.write_pressure_table(path, run.outcome.pressures)
         elif not cells and run.outcome.tensions is not None:
@@ -879,7 +1170,7 @@ class ExportWidget(QWidget):
 
     def _refresh(self, *_args: Any) -> None:  # noqa: ANN401
         run = self.session.run()
-        if run is None or run.outcome is None:
+        if run is None or (run.outcome is None and run.ensemble is None):
             self.export_button.setEnabled(False)
             self.export_button.setText("Export (run Infer first)")
         elif run.out_of_date:
