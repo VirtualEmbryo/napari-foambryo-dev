@@ -14,6 +14,8 @@ specification's principles (one code path, no default of its own, nothing silent
 | M3 a usable plugin | done | `napari-foambryo` `feature/first-version`: adcb9f4 (.DS_Store), 806f2ee (the plugin), 9769ecb (fixes from the real window); plugin suite 75 passed, 0 skipped (T1–T3; G1–G3, G6–G8, G10; G9 in its first form) |
 | M4 ensembles, estimate, cancel | done | `feature/first-version` 74e6d11; plugin suite 83 passed, 0 skipped; gates G4 (child = library, 1 and 2 workers), G5 (in-memory = .rec route on case 000 cut by the image box), G9 (anchors within the band; the guard's three levels; `run anyway` in the widget); Cancel stops a slow child and its own process |
 | M5 from another plugin's segmentation | done | `feature/first-version` a09cdd8, 15f52ab, 63e4a39; plugin suite 86 passed, 0 skipped; gate G11 (bitwise through the widgets); manual check with napari-segment-blobs-and-things-with-membranes 0.3.12 (BSD-3-Clause, R. Haase) on case 000's microscopy stack, in a real window: median relative tension error 0.074 as the plugin leaves the labels, 0.069 once the background pieces are merged, against 0.041 on the true mask (`results/from_a_membrane_segmentation_plugin_on_case_000.json`) |
+| M6 documentation | done | `feature/first-version` af46f00: README with two screenshots and a 15 s animation, `examples/quickstart.py` and `examples/from_a_segmentation_plugin.py` (both run once in a real window), the specification and its figures beside the code |
+| M7 close | REPORT, HANDOFF, figures, 11 screenshots; scanners clean (REPORT); the real-size smoke run waits for the heavy-run lock (R132's) | this commit |
 | M3b the morning kit | done | `scratch/napari-foambryo/try_napari_foambryo.zsh`, `start_napari_with_foambryo.py`, `TRY-IT.md`; launcher run once with `--smoke-test` in a real napari 0.9.2 window: case 000 reconstructed (1712 points, 10.8 s, 0.76 GiB), inferred, exported; screenshots in `scratch/napari-foambryo/screenshots/` |
 
 ## Decisions
@@ -97,3 +99,8 @@ specification's principles (one code path, no default of its own, nothing silent
     interpreter at the end of one test session); handlers now do nothing for a closed dock. The one commit made
     on an unchecked log (a09cdd8: `tail` succeeded where pytest's exit code was not read) was re-run: 84 passed;
     later commits are gated on pytest's own exit code.
+23. **Project URLs and a napari-hub description file are left out** until the repositories exist (the hub's
+    current conventions are `TO VERIFY`); the package metadata carries the `Framework :: napari` classifier.
+24. **The heavy-run lock is never taken while held.** The real-size smoke run (a 90-cell simulated tissue, about
+    20 s and 5 GiB) waits for R132 to release the lock (`scratch/napari-foambryo/run_the_real_size_smoke_under_the_lock.zsh`,
+    up to four hours), takes it with `mkdir`, writes its owner line, and removes it only if it still owns it.

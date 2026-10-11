@@ -1,7 +1,7 @@
-# R124 — napari-foambryo: the specification (phase A)
+# R124 — napari-foambryo: the specification (phase A) and the build (phase B)
 
-**Fragment.** Phase A of two: the specification only, written for the maintainer's review. No plugin code exists
-yet; phase B (the build) starts only after written approval of `docs/SPECIFICATION.md`.
+Phase A (the specification) and phase B (the build, overnight 11–12 October 2026). Phase B's record is
+`REPORT.md`, `HANDOFF.md` and `phase_b_decision_log.md`; the plugin's code is on `feature/first-version`.
 
 ## Question
 
@@ -54,4 +54,5 @@ The 1 866-cell count takes that mesh's `.npz` as `NAME=PATH`; its path is not re
 
 ## Status
 
-Phase A complete; stopped for review. Open questions: `docs/SPECIFICATION.md` § 11.
+Phase A approved (11 October, decisions in `docs/SPECIFICATION.md` § 11). Phase B built and checked; not released
+(`REPORT.md`).
