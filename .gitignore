@@ -15,3 +15,4 @@ scratch_*.py
 *_scratch.py
 # Default output folder of the plugin's examples: never committed, and never the workspace root.
 outputs/
+.DS_Store
