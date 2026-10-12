@@ -1,7 +1,8 @@
 """The state the dock widgets share in one viewer: the runs, which one is current, and their layers.
 
 The widgets do not call each other: Reconstruct adds a run and says so, Infer computes on the current run and says
-so, Results and Export listen. A change of a run's source Labels layer marks the run out of date (its layers are
+so, Results, Export and View listen; View redraws a run's layers (explode, cut) and says so, and Results selects its
+row again. A change of a run's source Labels layer marks the run out of date (its layers are
 renamed `… [out of date]` and Export refuses it) until it is reconstructed again.
 """
 
@@ -25,12 +26,18 @@ _SESSIONS: dict[int, Session] = {}
 
 @dataclass
 class RunDisplay:
-    """How a run is shown: the base of its layers' names, its source layer, the spacing it was reconstructed with."""
+    """How a run is shown: the base of its layers' names, its source layer, the spacing it was reconstructed with.
+
+    `explode` is the View dock's explode coefficient for this run (0 = off), `cut` its cut (`_layers.CutPlane`) or
+    `None`: layers added later (another Infer) are drawn with both.
+    """
 
     base_name: str
     source_layer: Any = None
     spacing_used: tuple[float, float, float] | None = None
     layers: list = field(default_factory=list)
+    explode: float = 0.0
+    cut: Any = None
 
 
 class Session:
@@ -39,6 +46,7 @@ class Session:
     run_added = Signal(str)
     results_changed = Signal(str)
     out_of_date = Signal(str)
+    display_changed = Signal(str)
 
     def __init__(self, viewer: Any) -> None:  # noqa: ANN401 - napari.Viewer or ViewerModel
         """Start with no run."""
@@ -46,6 +54,9 @@ class Session:
         self.current: str | None = None
         self.displays: dict[str, RunDisplay] = {}
         self.order: list[str] = []
+        #: The Infer dock's current options (a callable returning `InferenceOptions`), so that Export can say when
+        #: they differ from those of the inference it exports.
+        self.infer_form_options: Any = None
 
     def run(self, run_id: str | None = None) -> Run | None:
         """The run `run_id`, or the current one."""

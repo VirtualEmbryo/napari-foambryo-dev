@@ -4,7 +4,8 @@ No Qt and no napari: the widgets fill a `Run`, and `export_run` writes the `foam
 foambryo's own writers (`foambryo.results`), so that the folder can be reproduced, and checked, without napari:
 
 * `mesh.rec`: the reconstruction's `.rec` bytes, which are `foambryo mesh`'s file for the same mask and options;
-* `tensions.csv`, `pressures.csv` (and `spectra.npz` with the spectrum diagnostics): exact floats;
+* `tensions.csv`, `pressures.csv` (not with the tensions only): exact floats; with diagnostics, `solves.csv` (one
+  row per linear solve) and, with the spectrum, `spectra.npz`;
 * `run.json`: schema 1 of the command's run record, plus `source_mask`, `equivalent_commands`, and napari's and the
   plugin's versions;
 * `colour_bars.png`: `foambryo.colour_scales.save_colour_bars` on the values shown;
@@ -37,6 +38,7 @@ __all__ = [
     "InferenceOptions",
     "Run",
     "SourceMask",
+    "earlier_outputs",
     "export_run",
     "infer_on_mesh",
 ]
@@ -91,7 +93,11 @@ class SourceMask:
 
 @dataclass(frozen=True)
 class InferenceOptions:
-    """The Infer widget's options, by the command's spellings (`foambryo.results.option_name`)."""
+    """The Infer widget's options, by the command's spellings (`foambryo.results.option_name`).
+
+    `pressures=False` is the tensions only (`foambryo infer --no-pressures`): the pressure method and base pressure
+    are then not used, and are recorded as `None`, as the command records them.
+    """
 
     tension_method: str
     pressure_method: str
@@ -99,10 +105,11 @@ class InferenceOptions:
     base_pressure: float
     solver: str
     diagnostics: str
+    pressures: bool = True
 
     def as_record(self) -> dict[str, Any]:
         """The `options` entry of `run.json`, as `foambryo infer` writes it."""
-        return {
+        record: dict[str, Any] = {
             "tension_method": self.tension_method,
             "pressure_method": self.pressure_method,
             "mean_tension": self.mean_tension,
@@ -110,18 +117,28 @@ class InferenceOptions:
             "solver": self.solver,
             "diagnostics": self.diagnostics,
         }
+        if not self.pressures:
+            record.update(pressure_method=None, base_pressure=None, no_pressures=True)
+        return record
 
     def command_arguments(self) -> list[str]:
         """The `foambryo infer` options that give the same numbers."""
+        pressure = (
+            [
+                "--pressure-method",
+                self.pressure_method,
+                "--mean-tension",
+                repr(self.mean_tension),
+                "--base-pressure",
+                repr(self.base_pressure),
+            ]
+            if self.pressures
+            else ["--no-pressures", "--mean-tension", repr(self.mean_tension)]
+        )
         return [
             "--tension-method",
             self.tension_method,
-            "--pressure-method",
-            self.pressure_method,
-            "--mean-tension",
-            repr(self.mean_tension),
-            "--base-pressure",
-            repr(self.base_pressure),
+            *pressure,
             "--solver",
             self.solver,
             "--diagnostics",
@@ -198,6 +215,7 @@ def infer_on_mesh(mesh: DcelData, options: InferenceOptions) -> tuple[InferenceO
             tables.PRESSURE_METHODS[options.pressure_method],
             solver=options.solver,
             diagnostics=tables.DIAGNOSTICS[options.diagnostics],
+            with_pressures=options.pressures,
         )
     return outcome, collector.summary, time.perf_counter() - started
 
@@ -278,8 +296,23 @@ class Run:
         return commands
 
 
+def earlier_outputs(folder: Path) -> list[str]:
+    """The files of an earlier export (or of the `foambryo` command) that `folder` holds, and so Export would replace.
+
+    Only foambryo's own output names (`EXPORT_OUTPUTS`, and `foambryo infer-over-seeds`' files in `ENSEMBLE_FOLDER`)
+    are listed: any other file in the folder is never touched. Names are relative to the folder.
+    """
+    folder = Path(folder)
+    found = [name for name in EXPORT_OUTPUTS if (folder / name).is_file()]
+    ensemble = folder / ENSEMBLE_FOLDER
+    found += [f"{ENSEMBLE_FOLDER}/{name}" for name in tables.ENSEMBLE_OUTPUTS if (ensemble / name).is_file()]
+    return found
+
+
 def export_run(run: Run, folder: Path, *, include_mask: bool = False, overwrite: bool = False) -> list[str]:
     """Write the run's files in `folder` (created if missing); returns their names.
+
+    With `overwrite`, the earlier outputs `earlier_outputs` lists are deleted first, and no other file.
 
     Raises:
         FileExistsError: if the folder holds an earlier export and `overwrite` is false.
@@ -292,7 +325,7 @@ def export_run(run: Run, folder: Path, *, include_mask: bool = False, overwrite:
         message = "nothing to export yet: run Infer first"
         raise ValueError(message)
     folder = Path(folder)
-    existing = [name for name in EXPORT_OUTPUTS if (folder / name).exists()]
+    existing = earlier_outputs(folder)
     if existing and not overwrite:
         message = f"{folder} already holds {', '.join(existing)}"
         raise FileExistsError(message)
@@ -321,6 +354,9 @@ def export_run(run: Run, folder: Path, *, include_mask: bool = False, overwrite:
     if outcome.pressures is not None:
         tables.write_pressure_table(folder / tables.PRESSURE_TABLE, outcome.pressures)
         outputs.append(tables.PRESSURE_TABLE)
+    if options.diagnostics != "none":
+        tables.write_solve_table(folder / tables.SOLVE_TABLE, outcome.records)
+        outputs.append(tables.SOLVE_TABLE)
     if options.diagnostics == "spectrum":
         tables.write_spectra(folder / tables.SPECTRA, [record.singular_values for record in outcome.records])
         outputs.append(tables.SPECTRA)

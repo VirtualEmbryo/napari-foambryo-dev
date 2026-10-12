@@ -14,6 +14,9 @@ contributions:
     - id: napari-foambryo.export_widget
       title: Export foambryo's files
       python_name: napari_foambryo._widgets:ExportWidget
+    - id: napari-foambryo.view_widget
+      title: Explode and cut the tissue
+      python_name: napari_foambryo._widgets:ViewWidget
     - id: napari-foambryo.reconstruct_selected_layer
       title: Reconstruct with foambryo
       python_name: napari_foambryo._commands:reconstruct_selected_layer
@@ -44,6 +47,8 @@ contributions:
       display_name: Results
     - command: napari-foambryo.export_widget
       display_name: Export
+    - command: napari-foambryo.view_widget
+      display_name: View
   menus:
     napari/layers/measure:
       - command: napari-foambryo.reconstruct_selected_layer

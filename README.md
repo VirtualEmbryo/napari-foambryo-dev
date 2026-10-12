@@ -45,7 +45,10 @@ napari-foambryo needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with
 2. *Plugins › foambryo › Reconstruct*: the layer and its voxel size are chosen; click **Reconstruct**.
 3. *Plugins › foambryo › Infer*: click **Infer**. The tensions appear on the mesh.
 4. *Plugins › foambryo › Results*: the colour bars and the tables; case 000's true tensions are in the table.
-5. *Plugins › foambryo › Export*: choose a folder, click **Export**.
+5. *Plugins › foambryo › Export*: choose a folder, click **Export**. If the folder already holds foambryo's files, a
+   dialog lists them and asks before replacing them; other files are never touched.
+6. *Plugins › foambryo › View*: **Explode** moves the cells apart (each interface drawn on both cells' sides), **Cut**
+   clips everything with a plane normal to z, y or x, to see the interfaces inside the tissue (3-D view).
 
 The same, scripted: `python examples/quickstart.py`.
 
@@ -56,7 +59,10 @@ The same, scripted: `python examples/quickstart.py`.
 * **Tensions** are relative: they are gauged to a mean of 1 (*Advanced › mean tension*). Interfaces with no
   triple line are undetermined and reported as `nan` (grey).
 * **Pressures** are relative to the medium (label 0, *base pressure* 0), in units of tension per length of the
-  voxel size's unit.
+  voxel size's unit. Untick *pressures* in Infer for the tensions only (`foambryo infer --no-pressures`).
+* **Diagnostics** (*Infer › Advanced › Diagnostics*: `basic`, or `spectrum` for the singular values too): the
+  Results dock's Diagnostics tab lists every linear solve (rank, residual, condition number, …); Export writes them
+  as `solves.csv` and `spectra.npz`.
 * **Cut cells**: where cells reach the image box, the mesh closes them with *crop faces* (grey, translucent); the
   pressures of the cells they cut are `nan`. Only pressure methods with a formulation for crop faces are offered.
 * **Seed ensembles**: the seed standard deviation is a lower bound on the error, not an error bar.

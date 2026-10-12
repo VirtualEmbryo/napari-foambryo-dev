@@ -1,4 +1,4 @@
-"""The dock widgets: Reconstruct, Infer, Results and Export.
+"""The dock widgets: Reconstruct, Infer, Results, Export and View.
 
 Every option's default is read from the library function's signature when the widget is built, as the command
 does; advanced options are folded away. Long steps run off the GUI thread: a reconstruction in a child process that
@@ -13,7 +13,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import numpy as np
 from foambryo import infer_forces
@@ -34,6 +34,8 @@ from qtpy.QtWidgets import (
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSlider,
     QSpinBox,
     QTableWidget,
     QTableWidgetItem,
@@ -46,19 +48,31 @@ from superqt import QCollapsible
 from napari_foambryo._estimate import estimate_reconstruction, memory_verdict
 from napari_foambryo._layers import (
     RUNS,
+    CutPlane,
     add_ensemble_layer,
     add_mesh_layers,
     add_result_layers,
+    apply_cut,
+    explode_layers,
     highlight,
     new_run_id,
+    world_bounds,
 )
 from napari_foambryo._masks import array_sha256, prepare_mask, swap_medium_label
 from napari_foambryo._runner import ChildCancelledError, ChildFailedError, run_in_child
-from napari_foambryo._runs import EnsembleOptions, InferenceOptions, Run, SourceMask, export_run, infer_on_mesh
+from napari_foambryo._runs import (
+    EnsembleOptions,
+    InferenceOptions,
+    Run,
+    SourceMask,
+    earlier_outputs,
+    export_run,
+    infer_on_mesh,
+)
 from napari_foambryo._session import RunDisplay, session_for
 from napari_foambryo._spacing import THIS_LAYER, TYPED, resolve_spacing
 
-__all__ = ["ExportWidget", "InferWidget", "ReconstructWidget", "ResultsWidget"]
+__all__ = ["ExportWidget", "InferWidget", "ReconstructWidget", "ResultsWidget", "ViewWidget"]
 
 AMBER, RED = "#b26b00", "#c0392b"
 
@@ -481,15 +495,16 @@ class ReconstructWidget(QWidget):
                 emitter.connect(changed)
 
     def _show_report(self, key: tuple) -> None:
+        """The report as information, never as a warning: segmentations are reconstructed as they are."""
         report = self._reports[key]
-        notable = report.cells_in_several_pieces or report.enclosed_medium_pieces or report.small_labels
-        text = f"Mask report (nothing is changed): {report.summary().removeprefix('mask: ')}."
+        counts = report.summary().split(": ", 1)[-1]
+        text = f"Mask report, for information (nothing is changed): {counts}."
         if report.cells_in_several_pieces:
             shown = ", ".join(f"{k} ({v})" for k, v in list(report.cells_in_several_pieces.items())[:5])
             text += f" In several pieces: {shown}{'…' if len(report.cells_in_several_pieces) > 5 else ''}."
         if report.small_labels:
             text += f" Very small: {', '.join(str(k) for k in list(report.small_labels)[:8])}."
-        _status(self.report_label, text, AMBER if notable else None)
+        _status(self.report_label, text)
 
     def _show_progress(self) -> None:
         elapsed = time.perf_counter() - self._memory["started"]
@@ -551,6 +566,8 @@ class InferWidget(QWidget):
         self.pressure_box = QComboBox()
         self.pressure_box.addItems(list(tables.PRESSURE_METHODS))
         self.pressure_box.setCurrentText(tables.option_name(_signature_default(infer_forces, "mode_pressure")))
+        self.pressures_box = QCheckBox("pressures (off: the tensions only, as foambryo infer --no-pressures)")
+        self.pressures_box.setChecked(True)  # the library's infer_forces infers both
         self.mean_tension = QLineEdit(repr(float(_signature_default(infer_forces, "mean_tension"))))
         self.base_pressure = QLineEdit(repr(float(_signature_default(infer_forces, "base_pressure"))))
         self.solver_box = QComboBox()
@@ -588,6 +605,7 @@ class InferWidget(QWidget):
         form.addRow("Tension method", self.tension_box)
         self.pressure_label = QLabel("Pressure method")
         form.addRow(self.pressure_label, self.pressure_box)
+        form.addRow(self.pressures_box)
         self.ensemble_form = QWidget()
         ensemble_form = QFormLayout(self.ensemble_form)
         ensemble_form.setContentsMargins(0, 0, 0, 0)
@@ -629,6 +647,8 @@ class InferWidget(QWidget):
         self.mode_box.currentIndexChanged.connect(self._mesh_changed)
         self.seeds_box.valueChanged.connect(self._mesh_changed)
         self.workers_box.valueChanged.connect(self._mesh_changed)
+        self.pressures_box.toggled.connect(self._mesh_changed)
+        session_for(self.viewer).infer_form_options = self.options
         self.session.run_added.connect(self._refill)
         self.session.out_of_date.connect(self._refill)
         napari_viewer.layers.events.inserted.connect(self._refill)
@@ -670,6 +690,10 @@ class InferWidget(QWidget):
         ensemble = self.ensemble_mode()
         self.pressure_label.setVisible(not ensemble)
         self.pressure_box.setVisible(not ensemble)
+        self.pressures_box.setVisible(not ensemble)
+        with_pressures = self.pressures_box.isChecked()
+        self.pressure_box.setEnabled(with_pressures)
+        self.base_pressure.setEnabled(with_pressures)
         self.ensemble_form.setVisible(ensemble)
         self.one_mesh_advanced.setVisible(not ensemble)
         self.ensemble_advanced.setVisible(ensemble)
@@ -731,6 +755,7 @@ class InferWidget(QWidget):
             base_pressure=float(self.base_pressure.text()),
             solver=self.solver_box.currentText(),
             diagnostics=self.diagnostics_box.currentText(),
+            pressures=self.pressures_box.isChecked(),
         )
 
     def ensemble_options(self) -> EnsembleOptions:
@@ -766,7 +791,12 @@ class InferWidget(QWidget):
             run.infer_seconds, run.infer_date, run.last_inference = seconds, started, "one mesh"
             display = self.session.displays[run.run_id]
             for name in add_result_layers(
-                self.viewer, run, display.base_name, display.source_layer, display.spacing_used
+                self.viewer,
+                run,
+                display.base_name,
+                display.source_layer,
+                display.spacing_used,
+                explode=display.explode,
             ):
                 layer = self.viewer.layers[name]
                 if layer not in display.layers:
@@ -774,6 +804,8 @@ class InferWidget(QWidget):
             shown = _show_one_result(display.layers)
             colour = None if outcome.status == "complete" else (AMBER if outcome.tensions is not None else RED)
             text = f"{outcome.status} in {seconds:.1f} s"
+            if not options.pressures:
+                text += " (the tensions only: no pressure was computed)"
             if outcome.error:
                 text += f": {outcome.error}"
             if shown:
@@ -792,7 +824,8 @@ class InferWidget(QWidget):
                 on_errored=self._errored,
             )
         else:
-            self._begin("Inferring the tensions, then the pressures…", cancellable=False)
+            what = "the tensions, then the pressures" if options.pressures else "the tensions only"
+            self._begin(f"Inferring {what}…", cancellable=False)
             self._worker = _start_worker(
                 infer_on_mesh, run.mesh, options, on_returned=returned, on_errored=self._errored
             )
@@ -808,7 +841,14 @@ class InferWidget(QWidget):
             run.ensemble_date, run.ensemble_peak_rss_bytes = started, result.peak_rss_bytes
             run.last_inference = "ensemble"
             display = self.session.displays[run.run_id]
-            name = add_ensemble_layer(self.viewer, run, display.base_name, display.source_layer, display.spacing_used)
+            name = add_ensemble_layer(
+                self.viewer,
+                run,
+                display.base_name,
+                display.source_layer,
+                display.spacing_used,
+                explode=display.explode,
+            )
             layer = self.viewer.layers[name]
             if layer not in display.layers:
                 display.layers.append(layer)
@@ -893,7 +933,11 @@ def _show_one_result(layers: list) -> str:
 # Results
 # ---------------------------------------------------------------------------------------------
 class ResultsWidget(QWidget):
-    """The interfaces and cells tables, the colour bars, the warnings; a row selects its interface or cell."""
+    """The interfaces, cells and diagnostics tables, the colour bars, the warnings; a row selects its interface or cell.
+
+    The Diagnostics tab is the solve table `foambryo infer --diagnostics` writes (`solves.csv`, one row per linear
+    solve), and with the spectrum diagnostics a plot of each solve's singular values on a log scale.
+    """
 
     def __init__(self, napari_viewer: Any) -> None:  # noqa: ANN401
         """Empty until an inference."""
@@ -904,8 +948,25 @@ class ResultsWidget(QWidget):
         self.tabs = QTabWidget()
         self.interfaces = self._table()
         self.cells = self._table()
+        self.diagnostics = self._table()
+        self.diagnostics_note = QLabel()
+        self.diagnostics_note.setWordWrap(True)
+        self.spectrum = QLabel()
+        self.spectrum.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.diagnostics.setMinimumHeight(150)
+        self.spectrum.setMinimumHeight(260)
+        diagnostics_content = QWidget()
+        diagnostics_layout = QVBoxLayout(diagnostics_content)
+        diagnostics_layout.addWidget(self.diagnostics_note)
+        diagnostics_layout.addWidget(self.diagnostics, 1)
+        diagnostics_layout.addWidget(self.spectrum)
+        diagnostics_page = QScrollArea()  # the table and the plot keep their height in a short dock
+        diagnostics_page.setWidgetResizable(True)
+        diagnostics_page.setWidget(diagnostics_content)
         self.tabs.addTab(self.interfaces, "Interfaces")
         self.tabs.addTab(self.cells, "Cells")
+        self.tabs.addTab(diagnostics_page, "Diagnostics")
+        self.tabs.setMinimumHeight(240)  # a crowded dock column must not squeeze the tables to a line
         self.flagged_only = QCheckBox("flagged only (undetermined, cut)")
         self.bars = QLabel()
         self.bars.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -929,6 +990,7 @@ class ResultsWidget(QWidget):
         self.csv_button.clicked.connect(self._export_csv)
         self.session.results_changed.connect(self.show_run)
         self.session.out_of_date.connect(lambda run_id: self.show_run(self.run_id))
+        session_for(self.viewer).display_changed.connect(self._select_again)
         self._bars_file: Path | None = None
         self._watched_labels: Any = None
         self.showing = "one mesh"
@@ -977,23 +1039,32 @@ class ResultsWidget(QWidget):
             rows.append(row)
         self._fill(self.interfaces, columns, rows)
 
-        columns = ["label", "pressure", "cut by the image box", "undetermined"]
-        if truth_p:
-            columns += ["true pressure"]
-        rows = []
-        for label, p in sorted(pressures.items()):
-            undetermined = not np.isfinite(p)
-            if flagged and not (undetermined or int(label) in cut):
-                continue
-            row = [int(label), float(p), "yes" if int(label) in cut else "", "yes" if undetermined else ""]
+        if run.options is not None and not run.options.pressures:
+            self._fill(self.cells, ["the tensions only were inferred: no pressure was computed"], [])
+        else:
+            columns = ["label", "pressure", "cut by the image box", "undetermined"]
             if truth_p:
-                row.append(truth_p.get(int(label), float("nan")))
-            rows.append(row)
-        self._fill(self.cells, columns, rows)
+                columns += ["true pressure"]
+            rows = []
+            for label, p in sorted(pressures.items()):
+                undetermined = not np.isfinite(p)
+                if flagged and not (undetermined or int(label) in cut):
+                    continue
+                row = [int(label), float(p), "yes" if int(label) in cut else "", "yes" if undetermined else ""]
+                if truth_p:
+                    row.append(truth_p.get(int(label), float("nan")))
+                rows.append(row)
+            self._fill(self.cells, columns, rows)
+        self._show_diagnostics(run)
 
         stale = " — OUT OF DATE: the labels changed; reconstruct again" if run.out_of_date else ""
+        materials = (
+            "no pressures (the tensions only)"
+            if run.options is not None and not run.options.pressures
+            else f"{len(pressures)} materials"
+        )
         text = (
-            f"{len(tensions)} interfaces, {len(pressures)} materials; status {outcome.status}"
+            f"{len(tensions)} interfaces, {materials}; status {outcome.status}"
             f"{': ' + outcome.error if outcome.error else ''}{stale}"
         )
         if truth_t:
@@ -1062,6 +1133,11 @@ class ResultsWidget(QWidget):
             rows.append(row)
         self._fill(self.interfaces, columns, rows)
         self._fill(self.cells, ["a seed ensemble has no pressures: no single mesh carries them"], [])
+        self._fill(self.diagnostics, [], [])
+        self.spectrum.clear()
+        _status(
+            self.diagnostics_note, "A seed ensemble records no solve diagnostics (foambryo infer-over-seeds does not)."
+        )
         self.tabs.setCurrentWidget(self.interfaces)
         flagged = sum(result.found_by_fewer_than_half_the_seeds.values())
         stale = " — OUT OF DATE: the labels changed; reconstruct again" if run.out_of_date else ""
@@ -1087,6 +1163,83 @@ class ResultsWidget(QWidget):
         )
         self._draw_bars(run)
         self._watch_labels(run)
+
+    def _show_diagnostics(self, run: Run) -> None:
+        """The solve table (`foambryo.results.SOLVE_COLUMNS`, the scalars of each `SolveRecord`) and the spectra."""
+        records = [] if run.outcome is None else run.outcome.records
+        diagnostics = "none" if run.options is None else run.options.diagnostics
+        if diagnostics == "none" or not records:
+            self._fill(self.diagnostics, [], [])
+            self.spectrum.clear()
+            _status(
+                self.diagnostics_note,
+                "No solve diagnostics: in Infer, open Advanced, choose Diagnostics › basic (the solves) or spectrum "
+                "(also their singular values), and run Infer again.",
+            )
+            return
+        rows = []
+        for index, record in enumerate(records):
+            scalars = {"index": index, **record.scalars()}
+            row = []
+            for column in tables.SOLVE_COLUMNS:
+                value = scalars.get(column)
+                if isinstance(value, str) and column in ("residual_norm", "condition_number"):
+                    value = float(value)  # a non-finite number, written as text by SolveRecord.scalars
+                row.append("" if value is None else value)
+            rows.append(row)
+        self._fill(self.diagnostics, list(tables.SOLVE_COLUMNS), rows)
+        _status(
+            self.diagnostics_note,
+            f"{len(records)} linear solves ({diagnostics}), in the order they ran: the table foambryo infer writes as "
+            f"{tables.SOLVE_TABLE}; Export writes it, and run.json's solves"
+            + (f", and the singular values as {tables.SPECTRA}." if diagnostics == "spectrum" else "."),
+        )
+        self._draw_spectrum(records)
+
+    def _draw_spectrum(self, records: list) -> None:
+        """Each solve's singular values on a log scale, in decreasing order (dense: all; sparse: the extremes)."""
+        import tempfile
+
+        spectra = [(i, r) for i, r in enumerate(records) if r.singular_values is not None and len(r.singular_values)]
+        if not spectra:
+            self.spectrum.clear()
+            return
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+
+        figure = Figure(figsize=(5.2, 2.6), dpi=100)
+        FigureCanvasAgg(figure)
+        axes = figure.add_subplot(1, 1, 1)
+        for index, record in spectra:
+            values = np.asarray(record.singular_values, dtype=np.float64)
+            axes.semilogy(
+                np.arange(1, len(values) + 1),
+                values,
+                marker=".",
+                markersize=3,
+                linewidth=1,
+                label=f"{index}: {record.system}",
+            )
+        axes.set_xlabel("index of the singular value (decreasing)")
+        axes.set_ylabel("singular value")
+        axes.legend(fontsize=6, loc="best")
+        figure.tight_layout()
+        if getattr(self, "_spectrum_folder", None) is None:
+            self._spectrum_folder = tempfile.TemporaryDirectory(prefix="napari_foambryo_spectrum_")
+        path = Path(self._spectrum_folder.name) / "singular_values.png"
+        figure.savefig(path)
+        pixmap = QPixmap(str(path))
+        width = min(460, pixmap.width())
+        self.spectrum.setPixmap(pixmap.scaledToWidth(width, Qt.TransformationMode.SmoothTransformation))
+
+    def _select_again(self, run_id: str) -> None:
+        """The View dock redrew the run's layers: show the selected row's interface or cell again."""
+        if run_id != self.run_id:
+            return
+        if self.interfaces.selectionModel().selectedRows():
+            self._select_interface()
+        elif self.cells.selectionModel().selectedRows():
+            self._select_cell()
 
     @staticmethod
     def _fill(table: QTableWidget, columns: list[str], rows: list[list]) -> None:
@@ -1241,7 +1394,12 @@ def _scale_factor(inferred: dict, truth: dict) -> float:
 # Export
 # ---------------------------------------------------------------------------------------------
 class ExportWidget(QWidget):
-    """A folder and one button: the command's files, and the command lines that reproduce them."""
+    """A folder and one button: the command's files, and the command lines that reproduce them.
+
+    When the folder already holds foambryo's outputs (an earlier export, or the command's files), a dialog lists them
+    and offers *Replace* or *Cancel*. Only those files are replaced, as `foambryo infer --overwrite` replaces only its
+    own outputs; any other file in the folder is never touched.
+    """
 
     def __init__(self, napari_viewer: Any) -> None:  # noqa: ANN401
         """No default folder: the user chooses where files go."""
@@ -1252,7 +1410,6 @@ class ExportWidget(QWidget):
         self.folder.setPlaceholderText("choose a folder")
         browse = QPushButton("Browse…")
         self.include_mask = QCheckBox("include the mask (mask.npz)")
-        self.overwrite = QCheckBox("replace an earlier export in this folder")
         self.export_button = QPushButton("Export")
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -1263,7 +1420,6 @@ class ExportWidget(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(row)
         layout.addWidget(self.include_mask)
-        layout.addWidget(self.overwrite)
         layout.addWidget(self.export_button)
         layout.addWidget(self.status)
         layout.addStretch(1)
@@ -1307,20 +1463,286 @@ class ExportWidget(QWidget):
             )
             if changed:
                 self.session.mark_out_of_date(run.run_id)
+        folder = Path(self.folder.text().strip()).expanduser()
+        existing = earlier_outputs(folder)
+        if existing and not self.confirm_replace(folder, existing):
+            _status(self.status, f"Cancelled: nothing was written in {folder}.", AMBER)
+            return []
         try:
-            written = export_run(
-                run,
-                Path(self.folder.text().strip()).expanduser(),
-                include_mask=self.include_mask.isChecked(),
-                overwrite=self.overwrite.isChecked(),
-            )
+            written = export_run(run, folder, include_mask=self.include_mask.isChecked(), overwrite=bool(existing))
         except (ValueError, FileExistsError, OSError) as error:
             _status(self.status, str(error), RED)
             return []
         commands = "\n".join(run.equivalent_commands())
+        replaced = f" (replacing {len(existing)} earlier file{'s' if len(existing) > 1 else ''})" if existing else ""
         _status(
             self.status,
-            f"Wrote {', '.join(written)} in {self.folder.text().strip()}.\n"
+            f"Wrote {', '.join(written)} in {self.folder.text().strip()}{replaced}.{self._options_note(run)}\n"
             f"The same numbers from the command line (in that folder):\n{commands}",
+            AMBER if self._options_note(run) else None,
         )
         return written
+
+    def confirm_replace(self, folder: Path, existing: list[str]) -> bool:
+        """Ask whether to replace foambryo's earlier outputs in `folder`: *Replace* (true) or *Cancel* (false)."""
+        from qtpy.QtWidgets import QMessageBox
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("Replace foambryo's files?")
+        box.setText(f"{folder} already holds {len(existing)} of foambryo's output files.")
+        box.setInformativeText(
+            "Replace them with this export? Only these files are replaced; any other file in the folder is left "
+            "alone.\n\n" + "\n".join(existing)
+        )
+        replace = box.addButton("Replace", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        box.exec()
+        return box.clickedButton() is replace
+
+    def _options_note(self, run: Run) -> str:
+        """Say so when the Infer dock now asks for other options than those of the inference exported."""
+        form = session_for(self.viewer).infer_form_options
+        if run.options is None or form is None:
+            return ""
+        try:
+            asked = form()
+        except ValueError:
+            return ""
+        if asked == run.options:
+            return ""
+        changed = [name for name in vars(asked) if getattr(asked, name) != getattr(run.options, name)]
+        return (
+            f" The Infer dock's {', '.join(changed)} differ from those of the inference exported: run Infer again to "
+            "export them."
+        )
+
+
+# ---------------------------------------------------------------------------------------------
+# View: explode and cut
+# ---------------------------------------------------------------------------------------------
+class ViewWidget(QWidget):
+    """See the interfaces inside the tissue: explode its cells, cut it with a plane normal to z, y or x.
+
+    **Explode** moves each cell of the current run away from the tissue's centre by the library's displacement
+    (`DcelData.compute_scattered_arrays(coeff)`, the coefficient of the Polyscope viewer's scattered view, 0 = off);
+    each interface is then drawn on both of its cells' sides, in its tension's colour, and each cell in its pressure's.
+    **Cut** clips every layer of the run and its Labels layer by one plane (napari's clipping planes, in 3-D), at a
+    position in the mesh's unit, keeping the lower or the higher side. The two combine. Nothing is computed again:
+    the values and colours are those of the last inference.
+    """
+
+    #: The explode slider's steps per unit of the coefficient, and its largest coefficient.
+    EXPLODE_STEPS, EXPLODE_MAX = 100, 1.0
+    #: The cut position slider's steps across the run's box.
+    CUT_STEPS = 1000
+    AXES = ("z", "y", "x")
+    KEEP: ClassVar[dict[str, str]] = {
+        "lower": "keep the lower side (below the plane)",
+        "higher": "keep the higher side (above the plane)",
+    }
+
+    def __init__(self, napari_viewer: Any) -> None:  # noqa: ANN401
+        """Explode off, no cut."""
+        super().__init__()
+        self.viewer = napari_viewer
+        self.shared = session_for(napari_viewer)  # the docks' shared runs
+        self.explode_slider = QSlider(Qt.Orientation.Horizontal)
+        self.explode_slider.setRange(0, int(self.EXPLODE_MAX * self.EXPLODE_STEPS))
+        self.explode_value = QLabel()
+        self.cut_box = QCheckBox("cut with a plane")
+        self.axis_box = QComboBox()
+        self.axis_box.addItems([f"normal to {axis}" for axis in self.AXES])
+        self.position_slider = QSlider(Qt.Orientation.Horizontal)
+        self.position_slider.setRange(0, self.CUT_STEPS)
+        self.position_slider.setValue(self.CUT_STEPS // 2)
+        self.position_value = QLabel()
+        self.keep_box = QComboBox()
+        for key, text in self.KEEP.items():
+            self.keep_box.addItem(text, key)
+        self.info = QLabel()
+        self.info.setWordWrap(True)
+        self._bounds: np.ndarray | None = None
+
+        form = QFormLayout()
+        explode_row = QHBoxLayout()
+        explode_row.addWidget(self.explode_slider, 1)
+        explode_row.addWidget(self.explode_value)
+        form.addRow("Explode", explode_row)
+        form.addRow(self.cut_box)
+        form.addRow("Plane", self.axis_box)
+        position_row = QHBoxLayout()
+        position_row.addWidget(self.position_slider, 1)
+        position_row.addWidget(self.position_value)
+        form.addRow("Position", position_row)
+        form.addRow("Keep", self.keep_box)
+        layout = QVBoxLayout(self)
+        layout.addLayout(form)
+        layout.addWidget(self.info)
+        layout.addStretch(1)
+
+        self._explode_timer = QTimer(self)  # a slider drag redraws at most every 80 ms
+        self._explode_timer.setSingleShot(True)
+        self._explode_timer.setInterval(80)
+        self._explode_timer.timeout.connect(lambda: self.set_explode(self.explode_slider.value() / self.EXPLODE_STEPS))
+        self.explode_slider.valueChanged.connect(self._explode_moved)
+        self.cut_box.toggled.connect(self._cut_changed)
+        self.axis_box.currentIndexChanged.connect(self._axis_changed)
+        self.position_slider.valueChanged.connect(self._cut_changed)
+        self.keep_box.currentIndexChanged.connect(self._cut_changed)
+        for signal in (self.shared.run_added, self.shared.results_changed):
+            signal.connect(self._run_changed)
+        self._run_changed()
+
+    # -- the current run ----------------------------------------------------------------------------
+    def _display(self) -> Any:  # noqa: ANN401
+        return self.shared.displays.get(self.shared.current or "")
+
+    def _layers(self, display: Any) -> list:  # noqa: ANN401
+        return [layer for layer in display.layers if layer in self.viewer.layers]
+
+    def _run_changed(self, *_args: Any) -> None:  # noqa: ANN401
+        """Another run, or new layers for this one: show its settings, and draw the new layers with them."""
+        display = self._display()
+        enabled = display is not None
+        for widget in (self.explode_slider, self.cut_box):
+            widget.setEnabled(enabled)
+        if display is None:
+            _status(self.info, "Reconstruct a mask, or open a .rec file, first.")
+            self._show_explode_value(0.0)
+            self._show_cut_controls(False)
+            return
+        self.explode_slider.blockSignals(True)
+        self.explode_slider.setValue(round(display.explode * self.EXPLODE_STEPS))
+        self.explode_slider.blockSignals(False)
+        self._show_explode_value(display.explode)
+        self._bounds = None
+        if display.cut is not None:
+            self._set_controls_from(display.cut)
+        else:
+            self._show_cut_controls(self.cut_box.isChecked())
+            self._show_position()
+        self._apply_cut(display)
+
+    def _set_controls_from(self, cut: CutPlane) -> None:
+        for widget in (self.cut_box, self.axis_box, self.keep_box, self.position_slider):
+            widget.blockSignals(True)
+        self.cut_box.setChecked(True)
+        self.axis_box.setCurrentIndex(cut.axis)
+        self.keep_box.setCurrentIndex(list(self.KEEP).index(cut.keep))
+        low, high = self._axis_range()
+        if high > low:
+            self.position_slider.setValue(round((cut.position - low) / (high - low) * self.CUT_STEPS))
+        for widget in (self.cut_box, self.axis_box, self.keep_box, self.position_slider):
+            widget.blockSignals(False)
+        self._show_cut_controls(True)
+        self._show_position()
+
+    # -- explode -------------------------------------------------------------------------------------
+    def _explode_moved(self, value: int) -> None:
+        self._show_explode_value(value / self.EXPLODE_STEPS)
+        self._explode_timer.start()
+
+    def _show_explode_value(self, coeff: float) -> None:
+        self.explode_value.setText("off" if coeff == 0 else f"{coeff:.2f}")
+
+    def set_explode(self, coeff: float) -> None:
+        """Draw the current run's layers with the explode coefficient `coeff` (0 = off)."""
+        display = self._display()
+        run = self.shared.run()
+        if display is None or run is None:
+            return
+        display.explode = float(coeff)
+        self.explode_slider.blockSignals(True)  # a call from Python moves the slider too
+        self.explode_slider.setValue(round(display.explode * self.EXPLODE_STEPS))
+        self.explode_slider.blockSignals(False)
+        self._show_explode_value(display.explode)
+        explode_layers(run, self._layers(display), display.explode)
+        self._bounds = None
+        self._show_position()
+        self._apply_cut(display)
+        what = (
+            "each interface drawn on both of its cells' sides, each cell moved away from the tissue's centre by "
+            f"{coeff:g} × (its centroid − the tissue's centroid), as the Polyscope viewer's scattered view"
+            if coeff
+            else "not exploded"
+        )
+        _status(self.info, f"Explode: {what}. The values and colours are the last inference's.")
+        self.shared.display_changed.emit(run.run_id)
+
+    # -- cut -----------------------------------------------------------------------------------------
+    def _show_cut_controls(self, on: bool) -> None:
+        for widget in (self.axis_box, self.position_slider, self.keep_box):
+            widget.setEnabled(on)
+
+    def _axis_range(self) -> tuple[float, float]:
+        """The current run's box along the chosen axis, in world units, as drawn now (exploded or not)."""
+        display = self._display()
+        if display is None:
+            return 0.0, 1.0
+        if self._bounds is None:
+            self._bounds = world_bounds(self._layers(display))
+            if self._bounds is None and display.source_layer is not None:  # no mesh layer: the labels' box
+                shape = np.asarray(display.source_layer.data.shape[-3:], dtype=np.float64)
+                scale = np.asarray(display.source_layer.scale[-3:])
+                translate = np.asarray(display.source_layer.translate[-3:])
+                self._bounds = np.stack([translate, translate + (shape - 1) * scale])
+        if self._bounds is None:
+            return 0.0, 1.0
+        axis = self.axis_box.currentIndex()
+        return float(self._bounds[0, axis]), float(self._bounds[1, axis])
+
+    def _position(self) -> float:
+        low, high = self._axis_range()
+        return low + (high - low) * self.position_slider.value() / self.CUT_STEPS
+
+    def _unit(self) -> str:
+        run = self.shared.run()
+        if run is not None and run.source is not None:
+            return run.source.spacing_unit
+        return "mesh units"
+
+    def _show_position(self) -> None:
+        low, high = self._axis_range()
+        self.position_value.setText(f"{self._position():.4g} {self._unit()} ({low:.4g} to {high:.4g})")
+
+    def _axis_changed(self, *_args: Any) -> None:  # noqa: ANN401
+        self.position_slider.blockSignals(True)
+        self.position_slider.setValue(self.CUT_STEPS // 2)
+        self.position_slider.blockSignals(False)
+        self._cut_changed()
+
+    def cut(self) -> CutPlane | None:
+        """The cut the dock shows, in world units, or `None` when it is off."""
+        if not self.cut_box.isChecked():
+            return None
+        return CutPlane(self.axis_box.currentIndex(), self._position(), self.keep_box.currentData())
+
+    def _cut_changed(self, *_args: Any) -> None:  # noqa: ANN401
+        self._show_cut_controls(self.cut_box.isChecked())
+        self._show_position()
+        display = self._display()
+        if display is None:
+            return
+        display.cut = self.cut()
+        self._apply_cut(display)
+        if display.cut is not None:
+            axis = self.AXES[display.cut.axis]
+            side = "below" if display.cut.keep == "lower" else "above"
+            in_2d = ""
+            if self.viewer.dims.ndisplay == 2:
+                in_2d = " (napari draws clipping planes in 3-D: switch to the 3-D view)"
+            _status(
+                self.info,
+                f"Cut: the plane {axis} = {display.cut.position:.4g} {self._unit()}, keeping what is {side} it, on "
+                f"every layer of this run and on its Labels layer{in_2d}.",
+            )
+        else:
+            _status(self.info, "No cut.")
+
+    def _apply_cut(self, display: Any) -> None:  # noqa: ANN401
+        layers = self._layers(display)
+        if display.source_layer is not None and display.source_layer in self.viewer.layers:
+            layers.append(display.source_layer)
+        apply_cut(layers, display.cut)

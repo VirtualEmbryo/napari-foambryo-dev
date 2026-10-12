@@ -60,7 +60,8 @@ def test_another_plugins_labels_give_the_librarys_numbers(qtbot, tmp_path, anoth
     assert "from layer 'membranes'" in reconstruct.spacing_label.text()
     reconstruct.medium_box.setValue(1)
     qtbot.waitUntil(
-        lambda: "Mask report (nothing is changed): 12 cells" in reconstruct.report_label.text(), timeout=TIMEOUT_MS
+        lambda: "Mask report, for information (nothing is changed): 12 cells" in reconstruct.report_label.text(),
+        timeout=TIMEOUT_MS,
     )
     assert reconstruct.run_button.isEnabled()
     reconstruct.start()

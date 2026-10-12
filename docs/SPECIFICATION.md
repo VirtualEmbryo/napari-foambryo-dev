@@ -148,8 +148,8 @@ tools, …) and goes on to foambryo without leaving napari or saving a file.
 
 ## 2. Widgets and their options
 
-Three dock widgets (*Reconstruct*, *Infer*, *Export*), a results dock (§ 4), a reader, a writer and sample data
-(§ 7). Advanced options sit in a folded section, closed by default. Every default below is the library's,
+Three dock widgets (*Reconstruct*, *Infer*, *Export*), a results dock (§ 4), a *View* dock (explode and cut,
+§ 3.6b), a reader, a writer and sample data (§ 7). Advanced options sit in a folded section, closed by default. Every default below is the library's,
 read from the signature at start-up; the value in brackets is today's.
 
 ### 2.1 Reconstruct
@@ -196,6 +196,7 @@ read from the signature at start-up; the value in brackets is today's.
 | mode | *one mesh* | — |
 | tension method | `young-dupre` | `infer_forces(mode_tension=)` |
 | pressure method | `variational` | `infer_forces(mode_pressure=)` |
+| *pressures* | on | on: `infer_forces`' two calls; off: the tensions only, `infer_tensions` (`foambryo infer --no-pressures`) |
 | *Advanced:* mean tension | `1` | `infer_forces(mean_tension=)` |
 | *Advanced:* base pressure | `0` | `infer_forces(base_pressure=)` |
 | *Advanced:* solver | `auto` | `infer_forces(solver=)` |
@@ -231,6 +232,7 @@ A folder chooser and one button. What is written:
 |---|---|---|
 | `mesh.rec` | the reconstructed mesh, with its metadata appendix (physical frame, spacing, unit, crop faces) | `foambryo mesh MASK -o mesh.rec --spacing …`, byte for byte |
 | `tensions.csv`, `pressures.csv` | one row per interface / material, exact floats | `foambryo infer mesh.rec -o FOLDER`, byte for byte |
+| `solves.csv` | with diagnostics `basic` or `spectrum`: one row per linear solve | the same, but for the solves' wall times |
 | `spectra.npz` | with diagnostics `spectrum` | the same |
 | `run.json` | schema 1 of the command's run record, plus keys (below) | the same keys and values, except `command`, `arguments`, `date`, `elapsed_seconds`, `versions` |
 | `colour_bars.png` | `save_colour_bars` on the shown values | `foambryo view --colour-bars` |
@@ -245,6 +247,11 @@ A folder chooser and one button. What is written:
   `foambryo infer mesh.rec -o . --tension-method young-dupre --pressure-method variational`), and
   `"versions"` gains `napari` and `napari-foambryo`.
 * Export is disabled while the results are out of date (§ 1.7), with the reason shown on the button.
+* **A folder that already holds foambryo's outputs** (an earlier export, or the command's files, `seed-ensemble/`
+  included): a dialog lists them and offers *Replace* or *Cancel*. Only those files are replaced (the command's
+  `--overwrite` rule); any other file in the folder is never touched.
+* Export writes the **last inference** (its options are in `run.json`). When the Infer dock's options differ from
+  it (diagnostics chosen after Infer, for example), Export says which, and that Infer must run again.
 * The *Export CSV* button of the results dock writes one table alone, in the same format.
 * **Writer contribution**: a plugin Surface layer saved with napari's *File → Save Layer* as `.rec` writes the
   mesh file above. Other layers are declined.
@@ -293,6 +300,23 @@ All names start with the mask layer's name, so several tissues can be open at on
   from the tissue's centroid by a coefficient), as `foambryo view --scattered` would.
 * Interfaces on crop faces are not in the tension layer (the library removes them from the equations); crop faces
   are only in their own layer.
+
+### 3.6b Explode and cut (the *View* dock)
+
+* **Explode**, a slider from 0 (off) to 1: each cell moves by the library's displacement,
+  `DcelData.compute_scattered_arrays(coeff)` (`coeff × (cell centroid − tissue centroid)`, the coefficient of the
+  Polyscope viewer's scattered view). The plugin reads the displacement once, at `coeff = 1`, and multiplies it by
+  the coefficient, which is the library's own arithmetic: the exploded positions are bitwise the library's (gate).
+  Exploded, each interface is drawn on both of its cells' sides in its tension's colour, each cell in its pressure's,
+  the crop faces with their cut cell. The pressure scale stays the unexploded surface's, so the Results dock's bar
+  holds for both. Layers are redrawn in place (visibility, opacity and blending stay the user's); a selected row
+  stays selected.
+* **Cut**: a plane normal to z, y or x, at a position in the mesh's unit (a slider across the run's box as drawn),
+  keeping the lower or the higher side, on every layer of the run and on its Labels layer. It is napari's clipping
+  planes (`experimental_clipping_planes`), which clip Surface and Labels layers in napari 0.9.2 (`MEASURED` in a
+  real window); the plane is given in each layer's data frame, so that it is one plane in the world. Clipping
+  planes act in the 3-D view only.
+* Explode and cut combine; nothing is computed again.
 
 ### 3.3 Memory cost of the display copies
 
@@ -369,7 +393,12 @@ A dock with two tabs.
 | on the displayed mesh | — | ✓ (§ 3.5) |
 
 **Cells** (one row per material, medium 0 included, as `pressures.csv`): label, pressure, cut by the image box
-(from the mesh's `cut_cells`), undetermined.
+(from the mesh's `cut_cells`), undetermined. With the tensions only, the tab says that no pressure was computed.
+
+**Diagnostics**: with diagnostics `basic` or `spectrum`, one row per linear solve, the columns of `solves.csv`
+(`foambryo.results.SOLVE_COLUMNS`: which system, the solver used, rows and unknowns, rank, residual, condition
+number and its source, time, `lsqr`'s counts, the spectrum's note and size); with `spectrum`, a plot of each solve's
+singular values on a log scale. Without diagnostics, the tab says how to ask for them.
 
 * Sorting by any column; a filter *flagged only* (undetermined, cut, found by fewer than half).
 * The table shows four significant digits; the CSV export writes exact floats (Python's shortest round-trip
@@ -683,3 +712,16 @@ The eleven questions of version 0, with the answers that version 1 builds on.
 Two further decisions: the sample with a known answer (benchmark case 000, § 7) waits for the redistribution
 question; and the tension colour map stays `jet`, as in the Polyscope viewer: if it changes to a perceptually
 uniform map, both viewers change together, in the library (not in 0.1.0).
+
+## 12. Amendments of 12 October 2026 (the maintainer's first try)
+
+1. **Explode and cut** (§ 3.6b), in a new *View* dock.
+2. **Tensions only**: a *pressures* check box in Infer (§ 2.2); off, no pressures layer, no pressure colour bar, no
+   pressure column, no `pressures.csv`, and `run.json` and its equivalent command are `foambryo infer --no-pressures`'s.
+3. **Export asks** before replacing foambryo's files in a folder (§ 2.3); the *replace an earlier export* check box
+   is gone.
+4. **Diagnostics are shown and exported**: the Diagnostics tab (§ 4); `solves.csv` beside `spectra.npz` (§ 2.3).
+   Why the first version seemed to drop them (`MEASURED`): Export writes the last inference's diagnostics, and
+   with `basic` they went only into `run.json`'s `solves`; a choice made in Infer after the run was not exported,
+   silently. Export now says so.
+5. The mask report is **information**, not a warning (no amber): segmentations are not repaired here.

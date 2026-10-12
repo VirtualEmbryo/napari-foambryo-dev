@@ -66,5 +66,11 @@ def test_the_manifest_is_valid():
     from npe2 import PluginManifest
 
     manifest = PluginManifest.from_distribution("napari-foambryo")
-    assert {w.display_name for w in manifest.contributions.widgets} == {"Reconstruct", "Infer", "Results", "Export"}
+    assert {w.display_name for w in manifest.contributions.widgets} == {
+        "Reconstruct",
+        "Infer",
+        "Results",
+        "Export",
+        "View",
+    }
     assert len(manifest.contributions.sample_data) == 4
