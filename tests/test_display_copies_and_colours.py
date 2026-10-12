@@ -13,10 +13,11 @@ import numpy as np
 import pytest
 from foambryo import infer_forces
 from foambryo.colour_scales import (
-    clipped_colour_fractions,
+    UNDETERMINED_COLOR,
     colour_bar_ranges,
     pressure_colour_fractions,
     pressure_colours,
+    tension_colour_fractions,
     tension_colours,
 )
 
@@ -71,9 +72,9 @@ def test_vertex_colours_are_the_librarys_colours(meshes, name):
     ranges = colour_bar_ranges(mesh, tensions, pressures)
     copy, keys = interface_copy(mesh)
     values, colours = tension_vertex_colours(mesh, copy, keys, tensions, pressures)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        expected = tension_colours(clipped_colour_fractions(values, ranges.tension))
+    expected = tension_colours(tension_colour_fractions(values, ranges.tension))
     assert np.array_equal(colours[:, :3], expected.astype(np.float32))
+    assert np.array_equal(colours[:, 3], np.where(np.isnan(values), 0.0, 1.0).astype(np.float32))  # no value: no fill
     copy = pressure_copy(mesh)
     values, colours = pressure_vertex_colours(mesh, copy, tensions, pressures)
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -81,8 +82,9 @@ def test_vertex_colours_are_the_librarys_colours(meshes, name):
     assert np.array_equal(colours[:, :3], expected.astype(np.float32))
     if name == "cropped":
         cut = {int(c) for c in mesh.cut_cells}
-        grey = np.isin(copy.vertex_group, list(cut))
-        assert np.allclose(colours[grey, :3], np.float32(0.6))
+        undetermined = np.isin(copy.vertex_group, list(cut))
+        assert np.allclose(colours[undetermined, :3], UNDETERMINED_COLOR.astype(np.float32))
+        assert not np.isin(copy.source_triangle, np.flatnonzero(mesh.crop_faces)).any()  # crop faces: never a value
 
 
 def test_the_mesh_lands_on_its_voxels_through_the_layer_frame(samples):

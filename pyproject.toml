@@ -44,7 +44,7 @@ napari-foambryo = "napari_foambryo:napari.yaml"
 where = ["src"]
 
 [tool.setuptools.package-data]
-napari_foambryo = ["napari.yaml", "sample_data/*.npz", "estimate/*.json"]
+napari_foambryo = ["napari.yaml", "sample_data/*.npz"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

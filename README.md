@@ -57,13 +57,14 @@ The same, scripted: `python examples/quickstart.py`.
 ## What the numbers mean
 
 * **Tensions** are relative: they are gauged to a mean of 1 (*Advanced › mean tension*). Interfaces with no
-  triple line are undetermined and reported as `nan` (grey).
+  triple line are undetermined and reported as `nan`: not filled, drawn as green outlines by their own layer.
+  The tension colours run from blue (low) through light grey (the mean tension) to red (high).
 * **Pressures** are relative to the medium (label 0, *base pressure* 0), in units of tension per length of the
   voxel size's unit. Untick *pressures* in Infer for the tensions only (`foambryo infer --no-pressures`).
 * **Diagnostics** (*Infer › Advanced › Diagnostics*: `basic`, or `spectrum` for the singular values too): the
   Results dock's Diagnostics tab lists every linear solve (rank, residual, condition number, …); Export writes them
   as `solves.csv` and `spectra.npz`.
-* **Cut cells**: where cells reach the image box, the mesh closes them with *crop faces* (grey, translucent); the
+* **Cut cells**: where cells reach the image box, the mesh closes them with *crop faces* (see-through glass with their edges); the
   pressures of the cells they cut are `nan`. Only pressure methods with a formulation for crop faces are offered.
 * **Seed ensembles**: the seed standard deviation is a lower bound on the error, not an error bar.
 

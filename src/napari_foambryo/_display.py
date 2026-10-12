@@ -6,9 +6,13 @@ three or more interfaces. A uniform colour per interface (tensions), per higher-
 is duplicated once per group it belongs to. The library's mesh is never changed; each copy keeps the index of the
 library's vertex and triangle behind each of its own, so that every displayed number maps back exactly.
 
-Colours are those of the Polyscope viewer, computed by `foambryo.colour_scales` on the same values: `jet` between the
-5 % and 95 % quantiles of the tensions, reversed `magma` from 0 to the 95 % quantile of the pressures over the
-surface's triangles, grey for `nan`. No Qt and no napari here.
+Colours are those of the Polyscope viewer, computed by `foambryo.colour_scales` on the same values: tensions in
+`coolwarm`, blue - light grey - red, over a range centred on the mean tension and symmetric around it (to the
+farther of the 5 % and 95 % quantiles); reversed `magma` from 0 to the 95 % quantile of the pressures over the
+surface's triangles. An undetermined tension (`nan`) is **not filled** (alpha 0): its interface is drawn as a green
+wireframe by its own layer (`undetermined_copy`); an undetermined pressure is filled with the library's
+`UNDETERMINED_COLOR`. Crop faces are never filled with a value's colour: they are left out of the pressure copies
+and drawn as glass by their own layer. No Qt and no napari here.
 
 **The exploded view** (the Polyscope viewer's "scattered" view) moves each cell away from the tissue's centre by the
 library's own displacement, `DcelData.compute_scattered_arrays(coeff)`: `coeff × (cell centroid − tissue centroid)`.
@@ -26,10 +30,10 @@ from typing import TYPE_CHECKING
 import numpy as np
 from foambryo.colour_scales import (
     UNDETERMINED_COLOR,
-    clipped_colour_fractions,
     colour_bar_ranges,
     pressure_colour_fractions,
     pressure_colours,
+    tension_colour_fractions,
     tension_colours,
 )
 from numpy.typing import NDArray
@@ -49,6 +53,7 @@ __all__ = [
     "pressure_vertex_colours",
     "scattered_directions",
     "tension_vertex_colours",
+    "undetermined_copy",
 ]
 
 
@@ -122,21 +127,26 @@ def interface_copy(mesh: DcelData) -> tuple[DisplayCopy, list[tuple[int, int]]]:
 
 
 def pressure_copy(mesh: DcelData) -> DisplayCopy:
-    """One copy per higher-labelled material of each triangle, as `foambryo view` colours its surface."""
-    rows = np.arange(len(mesh.f), dtype=np.int64)
-    groups = np.max(np.asarray(mesh.f[:, 3:5], dtype=np.int64), axis=1)
+    """One copy per higher-labelled material of each triangle, as `foambryo view` colours its surface.
+
+    Crop faces are left out: they carry no value (the crop faces' own layer draws them as glass).
+    """
+    rows = np.flatnonzero(~np.asarray(mesh.crop_faces, dtype=bool))
+    groups = np.max(np.asarray(mesh.f[rows, 3:5], dtype=np.int64), axis=1)
     return _copy_by_group(np.asarray(mesh.v, dtype=np.float64), np.asarray(mesh.f[:, :3], dtype=np.int64), rows, groups)
 
 
-def cell_side_copy(mesh: DcelData) -> DisplayCopy:
+def cell_side_copy(mesh: DcelData, *, with_crop_faces: bool = True) -> DisplayCopy:
     """Each cell as a closed surface: every triangle once per cell on either side (the medium has none).
 
-    The second side's triangles are reversed, so that each cell's triangles are wound alike.
+    The second side's triangles are reversed, so that each cell's triangles are wound alike. Without
+    `with_crop_faces` (the exploded pressures), a cut cell is left open where the crop cut it.
     """
     triangles = np.asarray(mesh.f[:, :3], dtype=np.int64)
     labels = np.asarray(mesh.f[:, 3:5], dtype=np.int64)
-    first = np.flatnonzero(labels[:, 0] > 0)
-    second = np.flatnonzero(labels[:, 1] > 0)
+    kept = np.ones(len(triangles), dtype=bool) if with_crop_faces else ~np.asarray(mesh.crop_faces, dtype=bool)
+    first = np.flatnonzero(kept & (labels[:, 0] > 0))
+    second = np.flatnonzero(kept & (labels[:, 1] > 0))
     stacked = np.concatenate([triangles, triangles[:, ::-1]])
     rows = np.concatenate([first, second + len(triangles)])
     groups = np.concatenate([labels[first, 0], labels[second, 1]])
@@ -209,6 +219,29 @@ def crop_face_copy(mesh: DcelData) -> DisplayCopy | None:
     )
 
 
+def undetermined_copy(copy: DisplayCopy, values: NDArray[np.float64]) -> DisplayCopy | None:
+    """The triangles of `copy` whose interface's tension is undetermined (`nan` in `values`, one per copied vertex).
+
+    For the green wireframe that draws an undetermined interface without fill. Its vertices keep the copy's sources,
+    groups and cells, so it explodes, cuts and maps back like the copy. `None` when every tension is determined.
+    """
+    undetermined_vertex = np.isnan(np.asarray(values, dtype=np.float64))
+    faces = np.asarray(copy.faces)
+    rows = np.flatnonzero(undetermined_vertex[faces[:, 0]])
+    if not rows.size:
+        return None
+    used, inverse = np.unique(faces[rows].reshape(-1), return_inverse=True)
+    return DisplayCopy(
+        copy.vertices[used],
+        inverse.reshape(-1, 3).astype(np.int64),
+        copy.source_vertex[used],
+        copy.source_triangle[rows],
+        copy.vertex_group[used],
+        copy.face_group[rows],
+        vertex_cell=None if copy.vertex_cell is None else copy.vertex_cell[used],
+    )
+
+
 def scattered_directions(mesh: DcelData) -> NDArray[np.float64]:
     """Each label's displacement in the library's scattered view at `coeff = 1`, as a `(max label + 1, 3)` array.
 
@@ -250,6 +283,9 @@ def tension_vertex_colours(
 ) -> tuple[NDArray[np.float64], NDArray[np.float32]]:
     """Each copied vertex's tension and RGBA colour, on the viewer's tension scale.
 
+    An undetermined tension (`nan`, or an interface absent from the map) has the library's `UNDETERMINED_COLOR` and
+    alpha 0: it is not filled, and the undetermined layer draws its outline.
+
     Returns:
         tuple: the tension of each vertex (`nan` when undetermined or absent), and its colour.
     """
@@ -257,10 +293,11 @@ def tension_vertex_colours(
     values = per_interface[copy.vertex_group]
     ranges = colour_bar_ranges(mesh, tensions, pressures)
     if ranges.tension is None:
-        return values, _rgba(np.tile(UNDETERMINED_COLOR, (len(values), 1)))
-    with np.errstate(invalid="ignore", divide="ignore"):
-        rgb = tension_colours(clipped_colour_fractions(values, ranges.tension))
-    return values, _rgba(rgb)
+        rgba = _rgba(np.tile(UNDETERMINED_COLOR, (len(values), 1)))
+    else:
+        rgba = _rgba(tension_colours(tension_colour_fractions(values, ranges.tension)))
+    rgba[np.isnan(values), 3] = 0.0
+    return values, rgba
 
 
 def pressure_vertex_colours(

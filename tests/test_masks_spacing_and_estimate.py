@@ -6,11 +6,13 @@ the memory guard's three levels fall where decision Q8 puts them.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from foambryo.segmentation_masks import SegmentationMaskError
 
-from napari_foambryo._estimate import GIB, cost_model, estimate_reconstruction, memory_verdict, voxels_handed_to_dw3d
+from napari_foambryo._estimate import GIB, estimate_reconstruction, estimate_text, memory_verdict, voxels_handed_to_dw3d
 from napari_foambryo._masks import array_sha256, prepare_mask, swap_medium_label
 from napari_foambryo._spacing import THIS_LAYER, TYPED, resolve_spacing
 
@@ -75,14 +77,20 @@ def test_the_spacing_is_never_guessed():
     assert "two different" in resolve_spacing(unknown, TYPED, mask_shape=(4, 5, 6), typed=(2.0, 1.0, 0.5)).problem
 
 
-def test_the_estimate_reproduces_its_anchors_within_its_band():
-    model = cost_model()
-    for anchor in model["anchors"]:
-        side = anchor["voxels"] ** (1 / 3)
+def test_the_estimate_is_the_librarys_and_reproduces_its_anchors_within_its_band():
+    """The plugin keeps no copy of the fit: its estimate is `foambryo.reconstruction_cost`'s, bitwise."""
+    from foambryo.reconstruction_cost import RECONSTRUCTION_COST_ANCHORS, estimate_reconstruction_cost
+
+    for name, voxels, seconds, peak_gib in RECONSTRUCTION_COST_ANCHORS:
+        side = voxels ** (1 / 3)
         estimate = estimate_reconstruction((side, side, side), (1.0, 1.0, 1.0))
-        assert estimate.seconds[0] * 0.999 <= anchor["seconds"] <= estimate.seconds[2] * 1.001, anchor["name"]
-        assert estimate.peak_gib[0] * 0.999 <= anchor["peak_gib"] <= estimate.peak_gib[2] * 1.001, anchor["name"]
+        assert estimate.seconds[0] * 0.999 <= seconds <= estimate.seconds[2] * 1.001, name
+        assert estimate.peak_gib[0] * 0.999 <= peak_gib <= estimate.peak_gib[2] * 1.001, name
     assert voxels_handed_to_dw3d((10, 10, 10), (2.0, 1.0, 1.0)) == 2000.0
+    assert estimate_reconstruction((100, 200, 200), (2.0, 1.0, 1.0)) == estimate_reconstruction_cost(8e6)
+    import napari_foambryo
+
+    assert not list(Path(napari_foambryo.__file__).parent.glob("estimate/*.json"))
 
 
 def test_the_memory_guard_needs_run_anyway_only_beyond_the_machine():
@@ -91,8 +99,9 @@ def test_the_memory_guard_needs_run_anyway_only_beyond_the_machine():
     assert memory_verdict(estimate, 128 * GIB, 30 * GIB).level == "amber"
     red = memory_verdict(estimate, 32 * GIB, 30 * GIB)
     assert red.level == "red" and red.needs_run_anyway and "foambryo mesh" in red.message
-    assert "min" in estimate.text() and "GiB" in estimate.text()
+    assert "min" in estimate_text(estimate)
+    assert "GiB" in estimate_text(estimate)
 
 
 def test_a_tiny_estimate_does_not_read_zero_seconds():
-    assert "0 s" not in estimate_reconstruction((10, 10, 10), (1.0, 1.0, 1.0)).text()
+    assert "0 s" not in estimate_text(estimate_reconstruction((10, 10, 10), (1.0, 1.0, 1.0)))

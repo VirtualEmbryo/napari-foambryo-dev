@@ -185,8 +185,10 @@ def test_seed_ensemble_walk_shows_the_spread_on_the_displayed_mesh(qtbot, viewer
     infer.seeds_box.setValue(2)
     _infer(qtbot, infer)
     assert infer.status.text().startswith("seed ensemble of 2 seeds"), infer.status.text()
-    names = [name for name in (lay.name for lay in viewer.layers) if "ensemble tensions" in name]
+    names = [lay.name for lay in viewer.layers if lay.metadata.get("foambryo", {}).get("kind") == "ensemble tensions"]
     assert names == [f"{layer.name} ensemble tensions (2 seeds, shown on seed 42's mesh)"]
+    outlines = [lay for lay in viewer.layers if lay.metadata.get("foambryo", {}).get("kind") == "undetermined tensions"]
+    assert all(lay.metadata["foambryo"]["of"] in (names[0], f"{layer.name} tensions") for lay in outlines)
     headers = [results.interfaces.horizontalHeaderItem(c).text() for c in range(results.interfaces.columnCount())]
     assert headers[:8] == [
         "label 1",

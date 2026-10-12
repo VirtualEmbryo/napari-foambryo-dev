@@ -43,7 +43,7 @@ medium, axis 0 = z, axis 1 = y, axis 2 = x.
    command lacks is added to the library and the command first, so that a run in napari can always be reproduced
    on the command line.
 4. **Nothing silent.** No default voxel size; every warning the library raises is shown once, with its count;
-   undetermined values stay `nan` and are drawn grey; a crop boundary is never drawn or reported as contact with
+   undetermined values stay `nan` and are drawn as no value (§ 3.6); a crop boundary is never drawn or reported as contact with
    the medium.
 5. **The libraries stay headless.** napari, Qt and magicgui are dependencies of the plugin only. Neither library
    gains a GUI dependency.
@@ -81,7 +81,7 @@ the mesh is built anyway.
 
 Where labels reach a face of the image box, the reconstruction marks the cell surfaces on that face as **crop
 faces** and the cells as **cut cells** (every image face is a crop, as in the command). The plugin draws the crop
-faces as their own grey, translucent layer, flags cut cells in the table, and shows the pressures the library
+faces as their own see-through, edged layer (glass), flags cut cells in the table, and shows the pressures the library
 returns for them: `nan`, with the library's `CutCellPressureWarning` (`SOURCE-VERIFIED`; the warning fires for
 the 3 cut cells of a four-cell fixture cut by the image box, `MEASURED`). A pressure method that has no formulation for crop faces is refused by the
 library (`MEASURED`: `weighted-laplace` raises `ValueError` on that fixture); the plugin shows the refusal and
@@ -161,7 +161,7 @@ read from the signature at start-up; the value in brackets is today's.
 | spacing (z, y, x) | the chosen layer's `scale` | napari; see below |
 | spacing unit | the chosen layer's `units` if set, else `um` | napari (`TO VERIFY`: `Layer.units` exists in the supported napari versions), the command's fallback |
 | medium is label | `0` | the library's medium; another value makes a swapped copy (§ 1.7) |
-| *Advanced:* `min_distance` | dw3d's (`3`) | `get_default_mesh_reconstruction_algorithm` |
+| `min_distance` (always shown) | dw3d's (`3`) | `get_default_mesh_reconstruction_algorithm` |
 
 * **Spacing.** A layer's `scale` is the voxel size in napari's (z, y, x) order, the order of dw3d's points.
   There is no default spacing: when the chosen scale is napari's own default (1, 1, 1) and carries no unit, the
@@ -287,9 +287,10 @@ All names start with the mask layer's name, so several tissues can be open at on
 |---|---|---|---|
 | *(user's)* Labels | Labels | the mask | napari's |
 | `<mask> cells` | Surface | copy per cell side (each cell a closed surface) | the Labels layer's colour of each cell, so the mesh matches the labels |
-| `<mask> tensions` | Surface | copy per interface | `tension_colours` (`jet`), the viewer's quantile range |
-| `<mask> pressures` | Surface | copy per higher-labelled material of each triangle (as `foambryo view` draws its surface), or per cell side when *scattered* is ticked | `pressure_colours` (reversed `magma`), the one pressure scale |
-| `<mask> crop faces` | Surface | the crop faces only | grey (`UNDETERMINED_COLOR`), translucent |
+| `<mask> tensions` | Surface | copy per interface | `tension_colours` (`coolwarm`), centred on the mean tension; an undetermined interface not filled (alpha 0) |
+| `<mask> tensions (undetermined: outlines)` | Surface | the undetermined interfaces of the tensions' copy | transparent faces, a wireframe in `UNDETERMINED_COLOR` (green) |
+| `<mask> pressures` | Surface | copy per higher-labelled material of each triangle (as `foambryo view` draws its surface), or per cell side when exploded; crop faces left out | `pressure_colours` (reversed `magma`), the one pressure scale |
+| `<mask> crop faces` | Surface | the crop faces only | glass: `CROP_FACE_COLOR` at `CROP_FACE_OPACITY` (in the vertex colours), a wireframe in `CROP_FACE_EDGE_COLOR` |
 | `<mask> highlight` | — | none: the selected interface or cell is shown by recolouring its copy, the others desaturated | — |
 
 * `vertex_colors` carry the library's own colours (`foambryo` colour functions, RGBA), so the colours handed to
@@ -357,7 +358,7 @@ from 1.5 × 10⁶ to 8.3 × 10⁸ voxels), the power-law fit and its band. Right
 
 The ensemble has no mesh of its own. The proposal: show the ensemble tensions on the mesh of the Reconstruct
 widget (the library's default seed, 42, which is deliberately not in the ensemble's 0 … N−1), matched by label
-pair; mesh interfaces the ensemble did not find are grey; ensemble interfaces absent from that mesh appear only in
+pair; mesh interfaces the ensemble did not find are drawn as undetermined (green outlines, no fill); ensemble interfaces absent from that mesh appear only in
 the table, marked *not on the displayed mesh*. The layer is named `<mask> ensemble tensions (N seeds, shown on
 seed 42's mesh)` (decision Q4).
 
@@ -365,10 +366,14 @@ seed 42's mesh)` (decision Q4).
 
 The same scales as `foambryo view`, computed by the same functions:
 
-* tensions: `jet`, between the 5 % and 95 % quantiles of the finite tensions (`quantile_colour_range`), clipped;
+* tensions: `coolwarm` (blue for low, light grey for the mean, red for high), over a range centred on the mean of the
+  finite tensions and symmetric around it, to the farther of the 5 % and 95 % quantiles (`tension_colour_range`),
+  clipped (amended 12 October 2026, the maintainer's choice; until then `jet` between the two quantiles);
 * pressures: reversed `magma`, from 0 to the 95 % quantile of the finite pressures over the surface's triangles
   (`surface_pressure_colour_upper`), the one pressure scale of the viewer's surface, graph view and bars;
-* `nan` (undetermined): grey.
+* `nan` (undetermined): a tension's interface is not filled and its own layer draws it as a green wireframe
+  (`UNDETERMINED_COLOR`, #1b9e77, outside both maps on napari's black background); a cell's pressure is filled green;
+* crop faces: see-through glass with its edges drawn, never a value's colour (left out of the pressure layers).
 
 The results dock shows the bars drawn by `save_colour_bars` itself (an image), so that a bar and its colours
 cannot disagree. napari's own colour-bar overlay is not used: it is drawn from a layer colormap, which a layer
@@ -438,7 +443,8 @@ singular values on a log scale. Without diagnostics, the tab says how to ask for
 
 ### 5.2 The estimate before a run
 
-From measured costs (`MEASURED` anchors, Figure 2): per-reconstruction medians of the default reconstruction
+The estimate is foambryo's, `foambryo.reconstruction_cost.estimate_reconstruction_cost` (amended 12 October 2026:
+its constants live once, in the library, and the plugin and the Polyscope viewer read them). From measured costs (`MEASURED` anchors, Figure 2): per-reconstruction medians of the default reconstruction
 (`min_distance` 3, junction relocation on) on one machine (Apple M3 Max, 16 cores, 128 GiB), from the benchmark
 cases (1.5 × 10⁶ voxels) to the 1 866-cell tissue at cubic voxels (8.3 × 10⁸). Fitted as power laws of the
 number of voxels handed to dw3d, `V` (the mask's voxels times the anisotropy `k`, after resampling):
@@ -710,8 +716,8 @@ The eleven questions of version 0, with the answers that version 1 builds on.
   otherwise ship the current fit with its stated band.
 
 Two further decisions: the sample with a known answer (benchmark case 000, § 7) waits for the redistribution
-question; and the tension colour map stays `jet`, as in the Polyscope viewer: if it changes to a perceptually
-uniform map, both viewers change together, in the library (not in 0.1.0).
+question; and the tension colour map is the library's, as in the Polyscope viewer: it changed for both viewers at
+once, in the library, to `coolwarm` centred on the mean tension (§ 3.6, 12 October 2026).
 
 ## 12. Amendments of 12 October 2026 (the maintainer's first try)
 
@@ -725,3 +731,16 @@ uniform map, both viewers change together, in the library (not in 0.1.0).
    with `basic` they went only into `run.json`'s `solves`; a choice made in Infer after the run was not exported,
    silently. Export now says so.
 5. The mask report is **information**, not a warning (no amber): segmentations are not repaired here.
+
+## 13. Amendments of 12 October 2026, afternoon (the maintainer's second round)
+
+1. **Tension colours**: `coolwarm`, blue - light grey - red, centred on the mean tension, symmetric, in the library
+   for every front end (§ 3.6). An undetermined tension's interface is not filled and is drawn as a green wireframe
+   by its own layer; crop faces are see-through glass with their edges, never a value's colour, and are left out of
+   the pressure layers.
+2. **The estimate** is the library's (§ 5.2); the plugin keeps no copy of its constants.
+3. **`min_distance`** is always shown on the Reconstruct dock (no *Advanced* fold there).
+4. **Dock order**: Reconstruct, Infer, View, Export, then Results.
+5. **Off the GUI thread**: the display copies and colours of the layers (after a reconstruction, an inference, a seed
+   ensemble, and when explode leaves or returns to 0) are built in a worker thread; napari is handed the final
+   arrays on the GUI thread.

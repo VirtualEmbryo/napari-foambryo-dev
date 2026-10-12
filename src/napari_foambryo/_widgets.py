@@ -1,4 +1,4 @@
-"""The dock widgets: Reconstruct, Infer, Results, Export and View.
+"""The dock widgets: Reconstruct, Infer, View, Export and Results.
 
 Every option's default is read from the library function's signature when the widget is built, as the command
 does; advanced options are folded away. Long steps run off the GUI thread: a reconstruction in a child process that
@@ -45,17 +45,23 @@ from qtpy.QtWidgets import (
 )
 from superqt import QCollapsible
 
-from napari_foambryo._estimate import estimate_reconstruction, memory_verdict
+from napari_foambryo._estimate import estimate_reconstruction, estimate_text, memory_verdict
 from napari_foambryo._layers import (
     RUNS,
     CutPlane,
+    _palette_of,
     add_ensemble_layer,
-    add_mesh_layers,
-    add_result_layers,
     apply_cut,
     explode_layers,
     highlight,
+    install_layers,
     new_run_id,
+    outline_layer_name,
+    prepare_ensemble_layers,
+    prepare_explode,
+    prepare_mesh_layers,
+    prepare_result_layers,
+    remove_stale_result_layers,
     world_bounds,
 )
 from napari_foambryo._masks import array_sha256, prepare_mask, swap_medium_label
@@ -91,10 +97,10 @@ def _labels_layers(viewer: Any) -> list:  # noqa: ANN401
 _LIVE_WORKERS: set = set()
 
 
-def _start_worker(function: Any, *args: Any, on_returned: Any, on_errored: Any) -> Any:  # noqa: ANN401
+def _start_worker(function: Any, *args: Any, on_returned: Any, on_errored: Any, **kwargs: Any) -> Any:  # noqa: ANN401
     from napari.qt.threading import create_worker
 
-    worker = create_worker(function, *args, _start_thread=False)
+    worker = create_worker(function, *args, _start_thread=False, **kwargs)
     worker.returned.connect(_unless_closed(on_returned))
     worker.errored.connect(_unless_closed(on_errored))
     _LIVE_WORKERS.add(worker)
@@ -192,12 +198,9 @@ class ReconstructWidget(QWidget):
         form.addRow("Unit", self.unit_edit)
         form.addRow(self.confirm_voxels)
         form.addRow("Medium is label", self.medium_box)
-        advanced = QWidget()
-        advanced_form = QFormLayout(advanced)
-        advanced_form.addRow("min_distance (cubic voxels)", self.min_distance)
+        form.addRow("min_distance (cubic voxels)", self.min_distance)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
-        layout.addWidget(_folded("Advanced", advanced))
         layout.addWidget(self.spacing_label)
         layout.addWidget(self.estimate_label)
         layout.addWidget(self.report_label)
@@ -324,7 +327,7 @@ class ReconstructWidget(QWidget):
         verdict = memory_verdict(estimate, memory.total, memory.available)
         _status(
             self.estimate_label,
-            f"Estimate: {estimate.text()} ({estimate.voxels:.3g} voxels after resampling; "
+            f"Estimate: {estimate_text(estimate)} ({estimate.voxels:.3g} voxels after resampling; "
             f"the band is in-sample, not a guarantee). {verdict.message}",
             {"ok": None, "amber": AMBER, "red": RED}[verdict.level],
         )
@@ -386,14 +389,13 @@ class ReconstructWidget(QWidget):
         }
 
         def reconstruct() -> Any:  # noqa: ANN401
-            return run_in_child(
+            """In a worker thread: the reconstruction (a child process), its mesh and its layers' display copies."""
+            result = run_in_child(
                 "foambryo.io:reconstruct_mask",
                 kwargs,
                 should_cancel=self._cancel.is_set,
                 on_memory=lambda rss: self._memory.update(rss=rss),
             )
-
-        def returned(result: Any) -> None:  # noqa: ANN401
             reconstruction = result.value
             run = Run(
                 run_id=new_run_id(),
@@ -406,12 +408,17 @@ class ReconstructWidget(QWidget):
                 reconstruct_seconds=result.seconds,
                 peak_rss_bytes=result.peak_rss_bytes,
             )
+            return result, run, prepare_mesh_layers(run, base_name, _palette_of(labels_for_display, run))
+
+        def returned(value: Any) -> None:  # noqa: ANN401
+            result, run, prepared_layers = value
+            reconstruction = result.value
             RUNS[run.run_id] = run
             display = RunDisplay(base_name, labels_for_display, choice.spacing)
             self.session.add(run, display)
             if labels_for_display is not labels:  # a swapped copy: an edit of the original also makes it stale
                 self.session.watch(run.run_id, labels)
-            for name in add_mesh_layers(self.viewer, run, base_name, labels_for_display, choice.spacing):
+            for name in install_layers(self.viewer, run, prepared_layers, labels_for_display, choice.spacing):
                 display.layers.append(self.viewer.layers[name])
             hidden = ""
             if self.viewer.dims.ndisplay == 3 and labels_for_display.visible:
@@ -790,26 +797,30 @@ class InferWidget(QWidget):
             run.options, run.outcome, run.infer_warnings = options, outcome, warnings_summary
             run.infer_seconds, run.infer_date, run.last_inference = seconds, started, "one mesh"
             display = self.session.displays[run.run_id]
-            for name in add_result_layers(
-                self.viewer,
-                run,
-                display.base_name,
-                display.source_layer,
-                display.spacing_used,
-                explode=display.explode,
-            ):
+            _status(self.status, "Preparing the layers…")
+            self._worker = _start_worker(  # the display copies and colours, off the GUI thread
+                prepare_result_layers, run, display.base_name, explode=display.explode,
+                on_returned=lambda prepared: shown(outcome, seconds, display, prepared),
+                on_errored=self._errored,
+            )
+
+        def shown(outcome: Any, seconds: float, display: Any, prepared: list) -> None:  # noqa: ANN401
+            names = install_layers(self.viewer, run, prepared, display.source_layer, display.spacing_used)
+            if names:
+                remove_stale_result_layers(self.viewer, display.base_name, names)
+            for name in names:
                 layer = self.viewer.layers[name]
                 if layer not in display.layers:
                     display.layers.append(layer)
-            shown = _show_one_result(display.layers)
+            shown_layers = _show_one_result(display.layers)
             colour = None if outcome.status == "complete" else (AMBER if outcome.tensions is not None else RED)
             text = f"{outcome.status} in {seconds:.1f} s"
             if not options.pressures:
                 text += " (the tensions only: no pressure was computed)"
             if outcome.error:
                 text += f": {outcome.error}"
-            if shown:
-                text += f". Shown: {shown}; the other result layers are hidden (tick their eye to show them)."
+            if shown_layers:
+                text += f". Shown: {shown_layers}; the other result layers are hidden (tick their eye to show them)."
             self._finish(text, colour)
             self.session.results_changed.emit(run.run_id)
 
@@ -841,19 +852,23 @@ class InferWidget(QWidget):
             run.ensemble_date, run.ensemble_peak_rss_bytes = started, result.peak_rss_bytes
             run.last_inference = "ensemble"
             display = self.session.displays[run.run_id]
-            name = add_ensemble_layer(
-                self.viewer,
-                run,
-                display.base_name,
-                display.source_layer,
-                display.spacing_used,
-                explode=display.explode,
+            _status(self.status, "Preparing the layers…")
+            self._worker = _start_worker(  # the display copies and colours, off the GUI thread
+                prepare_ensemble_layers, run, display.base_name, explode=display.explode,
+                on_returned=lambda prepared: shown(result, display, prepared),
+                on_errored=self._errored,
             )
-            layer = self.viewer.layers[name]
-            if layer not in display.layers:
-                display.layers.append(layer)
+
+        def shown(result: Any, display: Any, prepared: list) -> None:  # noqa: ANN401
+            name = add_ensemble_layer(self.viewer, run, display.base_name, display.source_layer, display.spacing_used,
+                                      prepared=prepared)
+            for layer_name in (name, outline_layer_name(name)):
+                if layer_name in self.viewer.layers and self.viewer.layers[layer_name] not in display.layers:
+                    display.layers.append(self.viewer.layers[layer_name])
             for other in display.layers:
-                if other.metadata.get("foambryo", {}).get("kind") in ("cells", "tensions", "pressures"):
+                info = other.metadata.get("foambryo", {})
+                if info.get("kind") in ("cells", "tensions", "pressures") or (
+                        info.get("kind") == "undetermined tensions" and info.get("of") != name):
                     other.visible = False
             flagged = sum(result.value.found_by_fewer_than_half_the_seeds.values())
             self._finish(
@@ -926,6 +941,10 @@ def _show_one_result(layers: list) -> str:
     for kind, layer in kinds.items():
         if kind in ("cells", "pressures", "tensions"):
             layer.visible = kind == "tensions"
+    for layer in layers:  # the outlines of the tensions shown, not those of another inference
+        info = layer.metadata.get("foambryo", {})
+        if info.get("kind") == "undetermined tensions":
+            layer.visible = info.get("of") == kinds["tensions"].name
     return kinds["tensions"].name
 
 
@@ -1585,7 +1604,10 @@ class ViewWidget(QWidget):
         self._explode_timer = QTimer(self)  # a slider drag redraws at most every 80 ms
         self._explode_timer.setSingleShot(True)
         self._explode_timer.setInterval(80)
-        self._explode_timer.timeout.connect(lambda: self.set_explode(self.explode_slider.value() / self.EXPLODE_STEPS))
+        self._explode_timer.timeout.connect(
+            lambda: self.request_explode(self.explode_slider.value() / self.EXPLODE_STEPS))
+        self._worker: Any = None  # the display copies being prepared for an explode, off the GUI thread
+        self._pending_explode: float | None = None
         self.explode_slider.valueChanged.connect(self._explode_moved)
         self.cut_box.toggled.connect(self._cut_changed)
         self.axis_box.currentIndexChanged.connect(self._axis_changed)
@@ -1647,8 +1669,49 @@ class ViewWidget(QWidget):
     def _show_explode_value(self, coeff: float) -> None:
         self.explode_value.setText("off" if coeff == 0 else f"{coeff:.2f}")
 
-    def set_explode(self, coeff: float) -> None:
-        """Draw the current run's layers with the explode coefficient `coeff` (0 = off)."""
+    def request_explode(self, coeff: float) -> None:
+        """The slider's explode: copies prepared in a worker when they change, else drawn at once.
+
+        When the layers change display copy (the coefficient leaves or returns to 0), the copies are prepared in a
+        worker thread and drawn when ready; otherwise only the vertices move, at once. A request made while copies
+        are prepared is kept and drawn next, so the last position of the slider wins.
+        """
+        display = self._display()
+        run = self.shared.run()
+        if display is None or run is None:
+            return
+        if self._worker is not None:
+            self._pending_explode = coeff
+            return
+        layers = self._layers(display)
+        targets = [(layer.name, layer.metadata.get("foambryo", {}).get("kind", ""),
+                    layer.metadata.get("foambryo", {}).get("explode", 0.0)) for layer in layers]
+        if all((current > 0) == (coeff > 0) for _, _, current in targets):
+            self.set_explode(coeff)
+            return
+        _status(self.info, "Explode: preparing the exploded layers…")
+        self._worker = _start_worker(
+            prepare_explode, run, display.base_name, targets, coeff,
+            on_returned=lambda prepared: self._explode_prepared(coeff, prepared),
+            on_errored=lambda error: self._explode_failed(error),
+        )
+
+    def _explode_prepared(self, coeff: float, prepared: dict) -> None:
+        self._worker = None
+        self.set_explode(coeff, prepared=prepared)
+        if self._pending_explode is not None:
+            pending, self._pending_explode = self._pending_explode, None
+            self.request_explode(pending)
+
+    def _explode_failed(self, error: BaseException) -> None:
+        self._worker, self._pending_explode = None, None
+        _status(self.info, f"Explode failed: {type(error).__name__}: {error}", RED)
+
+    def set_explode(self, coeff: float, prepared: dict | None = None) -> None:
+        """Draw the current run's layers with the explode coefficient `coeff` (0 = off), at once.
+
+        `prepared` is `prepare_explode`'s result when the copies were prepared already (the slider's path).
+        """
         display = self._display()
         run = self.shared.run()
         if display is None or run is None:
@@ -1658,7 +1721,7 @@ class ViewWidget(QWidget):
         self.explode_slider.setValue(round(display.explode * self.EXPLODE_STEPS))
         self.explode_slider.blockSignals(False)
         self._show_explode_value(display.explode)
-        explode_layers(run, self._layers(display), display.explode)
+        explode_layers(run, self._layers(display), display.explode, prepared, base_name=display.base_name)
         self._bounds = None
         self._show_position()
         self._apply_cut(display)

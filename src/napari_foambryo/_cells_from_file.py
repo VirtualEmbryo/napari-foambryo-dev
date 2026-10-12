@@ -9,7 +9,7 @@ import numpy as np
 from foambryo import dcel_mesh_from_file
 
 from napari_foambryo._display import cell_side_copy, crop_face_copy
-from napari_foambryo._layers import CROP_FACE_OPACITY, CROP_FACE_RGBA, RUNS, _label_palette, _metadata, new_run_id
+from napari_foambryo._layers import CROP_FACE_LAYER, CROP_FACE_RGBA, RUNS, _label_palette, _metadata, new_run_id
 from napari_foambryo._runs import Run
 
 __all__ = ["mesh_layers_from_file"]
@@ -40,8 +40,7 @@ def mesh_layers_from_file(path: Path) -> list[tuple[Any, dict, str]]:
                 {
                     "name": f"{path.stem} crop faces",
                     "vertex_colors": np.tile(np.asarray(CROP_FACE_RGBA, dtype=np.float32), (len(crop.vertices), 1)),
-                    "opacity": CROP_FACE_OPACITY,
-                    "blending": "translucent",
+                    **CROP_FACE_LAYER,
                     "metadata": _metadata(run, "crop faces", crop, base_name=path.stem),
                 },
                 "surface",

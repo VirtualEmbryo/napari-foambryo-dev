@@ -43,12 +43,12 @@ contributions:
       display_name: Reconstruct
     - command: napari-foambryo.infer_widget
       display_name: Infer
-    - command: napari-foambryo.results_widget
-      display_name: Results
-    - command: napari-foambryo.export_widget
-      display_name: Export
     - command: napari-foambryo.view_widget
       display_name: View
+    - command: napari-foambryo.export_widget
+      display_name: Export
+    - command: napari-foambryo.results_widget
+      display_name: Results
   menus:
     napari/layers/measure:
       - command: napari-foambryo.reconstruct_selected_layer
