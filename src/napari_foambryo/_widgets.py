@@ -1646,6 +1646,8 @@ class ViewWidget(QWidget):
             self._show_explode_value(0.0)
             self._show_cut_controls(False)
             return
+        if self.info.text().endswith("first."):  # the message of no run is no longer true
+            _status(self.info, "")
         self.explode_slider.blockSignals(True)
         self.explode_slider.setValue(round(display.explode * self.EXPLODE_STEPS))
         self.explode_slider.blockSignals(False)

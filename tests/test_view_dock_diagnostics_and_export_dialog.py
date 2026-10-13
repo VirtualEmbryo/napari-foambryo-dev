@@ -251,8 +251,10 @@ def test_the_background_paints_the_canvas_only(qtbot, viewer, docks, monkeypatch
     from qtpy.QtGui import QColor
     from qtpy.QtWidgets import QColorDialog
 
-    _reconstructed_and_inferred(qtbot, viewer, docks)
     view = docks[-1]
+    assert view.info.text().endswith("first.")  # no run yet
+    _reconstructed_and_inferred(qtbot, viewer, docks)
+    assert not view.info.text().endswith("first.")  # a run: the message of no run is gone
     surfaces = [layer for layer in viewer.layers if hasattr(layer, "vertex_colors")]
     colours = [np.array(layer.vertex_colors, copy=True) for layer in surfaces]
     assert [view.background_box.itemText(i) for i in range(view.background_box.count())] == [
