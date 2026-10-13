@@ -128,3 +128,28 @@ def test_the_layers_are_prepared_off_the_gui_thread_and_are_the_synchronous_ones
     assert explode_threads == [False]  # the copy change (0 to 0.4) prepared in a worker thread
     exploded = prepare_result_layers(run, layer.name, explode=0.4)[0]
     assert drawn.data[0].tobytes() == exploded.vertices.tobytes()
+
+
+def test_a_one_mesh_inference_runs_in_a_child_process_that_cancel_stops(qtbot, viewer, docks, monkeypatch):  # noqa: F811
+    """Every one-mesh Infer runs `infer_on_mesh` in a child process, whatever the solver, with Cancel enabled.
+
+    In a worker thread it held Python's lock and froze napari 0.6-2 s on a 2 000-cell foam (the maintainer's choice of
+    13 October: a child process, about a second of start-up on a small mesh).
+    """
+    import napari_foambryo._widgets as widgets
+
+    targets: list[str] = []
+    real = widgets.run_in_child
+
+    def recorded(target: str, *args: object, **kwargs: object):
+        targets.append(target)
+        return real(target, *args, **kwargs)
+
+    monkeypatch.setattr(widgets, "run_in_child", recorded)
+    _, infer, *_ = docks
+    _reconstructed_and_inferred(qtbot, viewer, docks, sample=foam_cubic)
+    assert targets[-1] == "napari_foambryo._runs:infer_on_mesh"
+    assert infer.solver_box.currentText() != "dense"  # the default solver too
+    infer.start()
+    assert infer.cancel_button.isEnabled()
+    qtbot.waitUntil(lambda: infer._worker is None, timeout=TIMEOUT_MS)

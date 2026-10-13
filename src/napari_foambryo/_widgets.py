@@ -1,9 +1,9 @@
 """The dock widgets: Reconstruct, Infer, View, Export and Results.
 
 Every option's default is read from the library function's signature when the widget is built, as the command
-does; advanced options are folded away. Long steps run off the GUI thread: a reconstruction in a child process that
-Cancel stops (`_runner`), an inference in a worker thread. Every warning the library raises is listed once, with
-its count, in the Results dock.
+does; advanced options are folded away. Long steps run off the GUI thread: a reconstruction and an inference each in
+a child process that Cancel stops (`_runner`), the layers' display copies in a worker thread. Every warning the library
+raises is listed once, with its count, in the Results dock.
 """
 
 from __future__ import annotations
@@ -73,7 +73,6 @@ from napari_foambryo._runs import (
     SourceMask,
     earlier_outputs,
     export_run,
-    infer_on_mesh,
 )
 from napari_foambryo._session import RunDisplay, session_for
 from napari_foambryo._spacing import THIS_LAYER, TYPED, resolve_spacing
@@ -776,8 +775,7 @@ class InferWidget(QWidget):
         )
 
     def start(self) -> None:
-        """Infer on the chosen mesh: one mesh in a worker thread (a child process with the dense solver), or a seed
-        ensemble in a child process."""
+        """Infer on the chosen mesh, one mesh or a seed ensemble, in a child process that Cancel stops."""
         run = RUNS.get(self.mesh_box.currentData() or "")
         if run is None:
             return
@@ -824,22 +822,19 @@ class InferWidget(QWidget):
             self._finish(text, colour)
             self.session.results_changed.emit(run.run_id)
 
-        if options.solver == "dense":  # the one solve measured in minutes on a large tissue: cancellable
-            self._begin("Inferring with the dense solver in a child process…")
-            self._worker = _start_worker(
-                self._in_child,
-                "napari_foambryo._runs:infer_on_mesh",
-                {"mesh": run.mesh, "options": options},
-                False,
-                on_returned=returned,
-                on_errored=self._errored,
-            )
-        else:
-            what = "the tensions, then the pressures" if options.pressures else "the tensions only"
-            self._begin(f"Inferring {what}…", cancellable=False)
-            self._worker = _start_worker(
-                infer_on_mesh, run.mesh, options, on_returned=returned, on_errored=self._errored
-            )
+        # Every one-mesh inference runs in a child process: the window never waits for it (an inference in a thread
+        # held Python's lock and froze napari 0.6-2 s on a 2 000-cell foam), and Cancel stops it. About a second of
+        # start-up, also on a small mesh.
+        what = "the tensions, then the pressures" if options.pressures else "the tensions only"
+        self._begin(f"Inferring {what} in a child process…")
+        self._worker = _start_worker(
+            self._in_child,
+            "napari_foambryo._runs:infer_on_mesh",
+            {"mesh": run.mesh, "options": options},
+            False,
+            on_returned=returned,
+            on_errored=self._errored,
+        )
 
     def _start_ensemble(self, run: Run) -> None:
         options = self.ensemble_options()

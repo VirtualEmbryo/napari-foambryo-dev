@@ -216,9 +216,9 @@ In *seed ensemble* mode the options are those of `foambryo infer-over-seeds`:
 * Method names are the command's spellings (`option_name` of the library's enumerations): thirteen tension
   methods and three pressure methods today, listed from the enumerations, never from a copy.
 * **Run (one mesh)**: the tensions, then the pressures, by the same two calls `infer_forces` makes, kept
-  separately so that the tensions survive a pressure solve that refuses them (the command's behaviour). Runs in
-  the worker thread (seconds); with `solver="dense"` it runs in a child process so that it can be cancelled
-  (§ 5.1).
+  separately so that the tensions survive a pressure solve that refuses them (the command's behaviour). Runs in a
+  child process, whatever the solver, so that the window never waits for it and Cancel stops it (§ 5.1; amended
+  13 October 2026).
 * **Run (seed ensemble)**: `infer_tensions_over_seeds` in a child process; its own workers inside.
 * Left out of 0.1.0: the angle reading for a single mesh (`infer_forces` and `foambryo infer` do not take it;
   decision Q2), the wedge refusal, the uncertainty estimates (`infer_tensions_with_uncertainty`: a lower bound
@@ -430,9 +430,9 @@ singular values on a log scale. Without diagnostics, the tab says how to ask for
   pressures as the mesh built in-process; 0.8 s round trip including the spawn. The pickled size of a
   1 866-cell mesh is `TO VERIFY`. The mask is sent to the child by pickling (decision Q6); shared memory only if
   the large-case gate shows that the copy matters.
-* **Single-mesh inference** runs in the worker thread (seconds); with `solver="dense"`, the only path measured in
-  minutes on a large tissue, it runs in a child process like a reconstruction. Cancel is offered only where it can
-  act.
+* **Single-mesh inference** runs in a child process like a reconstruction, whatever the solver (amended 13 October
+  2026, the maintainer's choice): in a thread it held Python's lock and froze the window 0.6-2 s on a 2 000-cell
+  foam; the child costs about a second of start-up on a small mesh. Cancel is offered for it.
 * **Progress at step level**: *checking the mask → resampling to cubic voxels (if anisotropic) → reconstructing
   (elapsed / estimate) → building the layers*; *tensions → pressures → colours*; for an ensemble, *elapsed /
   estimate*. Seed-by-seed progress needs a progress callback in `infer_tensions_over_seeds` (decision Q7); the
@@ -741,6 +741,7 @@ once, in the library, to `coolwarm` centred on the mean tension (§ 3.6, 12 Octo
 2. **The estimate** is the library's (§ 5.2); the plugin keeps no copy of its constants.
 3. **`min_distance`** is always shown on the Reconstruct dock (no *Advanced* fold there).
 4. **Dock order**: Reconstruct, Infer, View, Export, then Results.
-5. **Off the GUI thread**: the display copies and colours of the layers (after a reconstruction, an inference, a seed
+5. **Off the GUI thread**: every one-mesh inference runs in a child process (13 October, the maintainer's choice;
+   until then only with the dense solver), cancellable; the display copies and colours of the layers (after a reconstruction, an inference, a seed
    ensemble, and when explode leaves or returns to 0) are built in a worker thread; napari is handed the final
    arrays on the GUI thread.
