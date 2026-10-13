@@ -148,8 +148,36 @@ def test_a_one_mesh_inference_runs_in_a_child_process_that_cancel_stops(qtbot, v
     monkeypatch.setattr(widgets, "run_in_child", recorded)
     _, infer, *_ = docks
     _reconstructed_and_inferred(qtbot, viewer, docks, sample=foam_cubic)
-    assert targets[-1] == "napari_foambryo._runs:infer_on_mesh"
+    assert targets[-1] == "napari_foambryo._runs:infer_on_mesh_source"
     assert infer.solver_box.currentText() != "dense"  # the default solver too
     infer.start()
     assert infer.cancel_button.isEnabled()
     qtbot.waitUntil(lambda: infer._worker is None, timeout=TIMEOUT_MS)
+
+
+def test_the_child_builds_the_runs_mesh_and_gives_bitwise_its_numbers(samples, tmp_path):
+    """The child is sent what the mesh was built from (a reconstruction's arrays, or a file's bytes), not the mesh.
+
+    Pickling the mesh held Python's lock for 1.3 s on a 2 000-cell foam (`MEASURED`). The child's numbers are those of
+    the run's own mesh, bitwise, for both kinds of run.
+    """
+    from foambryo import dcel_mesh_from_file, reconstruct_mask
+
+    from napari_foambryo._runs import InferenceOptions, Run, infer_on_mesh, infer_on_mesh_source, mesh_source
+    from tests.conftest import quietly, same_floats
+
+    options = InferenceOptions("young-dupre", "variational", 1.0, 0.0, "auto", "none")
+    mask, spacing = samples["cubic"]
+    reconstruction = quietly(reconstruct_mask, mask, spacing)
+    reconstructed = Run("a", reconstruction.mesh(), reconstruction=reconstruction, rec_bytes=reconstruction.rec_bytes)
+    path = tmp_path / "tissue.rec"
+    reconstruction.write_rec(path)
+    opened = Run("b", quietly(dcel_mesh_from_file, path), rec_bytes=path.read_bytes(), rec_name=path.name)
+    for run, kind in ((reconstructed, "reconstruction"), (opened, "file_bytes")):
+        source = mesh_source(run)
+        assert kind in source
+        assert "mesh" not in source
+        child = quietly(infer_on_mesh_source, source, options)[0]
+        direct = quietly(infer_on_mesh, run.mesh, options)[0]
+        assert same_floats(child.tensions, direct.tensions)
+        assert same_floats(child.pressures, direct.pressures)

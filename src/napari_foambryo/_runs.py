@@ -41,6 +41,8 @@ __all__ = [
     "earlier_outputs",
     "export_run",
     "infer_on_mesh",
+    "infer_on_mesh_source",
+    "mesh_source",
 ]
 
 PLUGIN = "napari-foambryo"
@@ -196,6 +198,44 @@ class EnsembleOptions:
             "--max-workers",
             str(self.max_workers),
         ]
+
+
+def mesh_source(run: Run) -> dict[str, Any]:
+    """What a child process needs to build the run's mesh itself, small to send: not the mesh.
+
+    Pickling the mesh (its half-edge structure: 51 MiB and 1.3 s for a 2 000-cell foam) holds Python's lock in the
+    thread that starts the child, and froze the window that long. The child rebuilds it the way the run's mesh was
+    built, so the mesh, and every number, is the same:
+
+    * a reconstruction: its `MaskReconstruction` (the mesh's arrays), whose `mesh()` built `run.mesh`;
+    * a mesh file opened in napari: the file's bytes and name, read by `dcel_mesh_from_file` as the reader did;
+    * anything else: the mesh itself.
+    """
+    if run.reconstruction is not None:
+        return {"reconstruction": run.reconstruction}
+    if run.rec_name is not None and run.rec_bytes:
+        return {"file_name": run.rec_name, "file_bytes": run.rec_bytes}
+    return {"mesh": run.mesh}
+
+
+def infer_on_mesh_source(
+    source: dict[str, Any], options: InferenceOptions
+) -> tuple[InferenceOutcome, list[dict], float]:
+    """`infer_on_mesh` on the mesh `mesh_source` describes, built here (in the child process)."""
+    if "reconstruction" in source:
+        mesh = source["reconstruction"].mesh()
+    elif "file_bytes" in source:
+        import tempfile
+
+        from foambryo import dcel_mesh_from_file
+
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / Path(source["file_name"]).name
+            path.write_bytes(source["file_bytes"])
+            mesh = dcel_mesh_from_file(path)
+    else:
+        mesh = source["mesh"]
+    return infer_on_mesh(mesh, options)
 
 
 def infer_on_mesh(mesh: DcelData, options: InferenceOptions) -> tuple[InferenceOutcome, list[dict], float]:

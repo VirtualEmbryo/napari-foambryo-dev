@@ -73,6 +73,7 @@ from napari_foambryo._runs import (
     SourceMask,
     earlier_outputs,
     export_run,
+    mesh_source,
 )
 from napari_foambryo._session import RunDisplay, session_for
 from napari_foambryo._spacing import THIS_LAYER, TYPED, resolve_spacing
@@ -824,13 +825,13 @@ class InferWidget(QWidget):
 
         # Every one-mesh inference runs in a child process: the window never waits for it (an inference in a thread
         # held Python's lock and froze napari 0.6-2 s on a 2 000-cell foam), and Cancel stops it. About a second of
-        # start-up, also on a small mesh.
+        # start-up, also on a small mesh. The child is sent what the mesh was built from, not the mesh (`mesh_source`).
         what = "the tensions, then the pressures" if options.pressures else "the tensions only"
         self._begin(f"Inferring {what} in a child process…")
         self._worker = _start_worker(
             self._in_child,
-            "napari_foambryo._runs:infer_on_mesh",
-            {"mesh": run.mesh, "options": options},
+            "napari_foambryo._runs:infer_on_mesh_source",
+            {"source": mesh_source(run), "options": options},
             False,
             on_returned=returned,
             on_errored=self._errored,
