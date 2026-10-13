@@ -18,13 +18,14 @@ from typing import Any, ClassVar
 import numpy as np
 from foambryo import infer_forces
 from foambryo import results as tables
-from foambryo.colour_scales import save_colour_bars
+from foambryo.colour_scales import BACKGROUND_COLOURS, save_colour_bars
 from foambryo.segmentation_masks import SegmentationMaskError
 from qtpy.QtCore import Qt, QTimer
-from qtpy.QtGui import QPixmap
+from qtpy.QtGui import QColor, QPixmap
 from qtpy.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -1535,10 +1536,10 @@ class ExportWidget(QWidget):
 
 
 # ---------------------------------------------------------------------------------------------
-# View: explode and cut
+# View: explode, cut and the background
 # ---------------------------------------------------------------------------------------------
 class ViewWidget(QWidget):
-    """See the interfaces inside the tissue: explode its cells, cut it with a plane normal to z, y or x.
+    """See the interfaces inside the tissue: explode its cells, cut it with a plane normal to z, y or x; the canvas.
 
     **Explode** moves each cell of the current run away from the tissue's centre by the library's displacement
     (`DcelData.compute_scattered_arrays(coeff)`, the coefficient of the Polyscope viewer's scattered view, 0 = off);
@@ -1546,6 +1547,10 @@ class ViewWidget(QWidget):
     **Cut** clips every layer of the run and its Labels layer by one plane (napari's clipping planes, in 3-D), at a
     position in the mesh's unit, keeping the lower or the higher side. The two combine. Nothing is computed again:
     the values and colours are those of the last inference.
+
+    **Background** paints napari's canvas (`viewer.canvas.background_color_override`): napari's theme (black in the
+    dark theme), or black, dark grey, light grey or white (the library's `BACKGROUND_COLOURS`, the Polyscope window's
+    choices), or a custom colour. A colour that hides some cells on one background shows them on another.
     """
 
     #: The explode slider's steps per unit of the coefficient, and its largest coefficient.
@@ -1557,6 +1562,8 @@ class ViewWidget(QWidget):
         "lower": "keep the lower side (below the plane)",
         "higher": "keep the higher side (above the plane)",
     }
+    #: The background choices besides the library's named colours: napari's theme, and a colour picked in a dialog.
+    THEME_BACKGROUND, CUSTOM_BACKGROUND = "napari's theme", "custom…"
 
     def __init__(self, napari_viewer: Any) -> None:  # noqa: ANN401
         """Explode off, no cut."""
@@ -1576,6 +1583,11 @@ class ViewWidget(QWidget):
         self.keep_box = QComboBox()
         for key, text in self.KEEP.items():
             self.keep_box.addItem(text, key)
+        self.background_box = QComboBox()
+        self.background_box.addItem(self.THEME_BACKGROUND, None)
+        for name, rgb in BACKGROUND_COLOURS.items():
+            self.background_box.addItem(name, tuple(rgb))
+        self.background_box.addItem(self.CUSTOM_BACKGROUND, self.CUSTOM_BACKGROUND)
         self.info = QLabel()
         self.info.setWordWrap(True)
         self._bounds: np.ndarray | None = None
@@ -1592,6 +1604,7 @@ class ViewWidget(QWidget):
         position_row.addWidget(self.position_value)
         form.addRow("Position", position_row)
         form.addRow("Keep", self.keep_box)
+        form.addRow("Background", self.background_box)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(self.info)
@@ -1609,6 +1622,8 @@ class ViewWidget(QWidget):
         self.axis_box.currentIndexChanged.connect(self._axis_changed)
         self.position_slider.valueChanged.connect(self._cut_changed)
         self.keep_box.currentIndexChanged.connect(self._cut_changed)
+        self.background_box.activated.connect(self._background_chosen)
+        self._show_background()
         for signal in (self.shared.run_added, self.shared.results_changed):
             signal.connect(self._run_changed)
         self._run_changed()
@@ -1729,6 +1744,42 @@ class ViewWidget(QWidget):
         )
         _status(self.info, f"Explode: {what}. The values and colours are the last inference's.")
         self.shared.display_changed.emit(run.run_id)
+
+    # -- background ----------------------------------------------------------------------------------
+    def set_background(self, colour: str | tuple[float, float, float] | None) -> None:
+        """Paint the canvas: a name of `BACKGROUND_COLOURS` (black, dark grey, light grey, white), an RGB triple in
+        [0, 1], or `None` for napari's theme. The layers and their colours are not touched.
+        """
+        if isinstance(colour, str):
+            colour = tuple(BACKGROUND_COLOURS[colour])
+        rgb = None if colour is None else tuple(float(c) for c in colour)
+        self.viewer.canvas.background_color_override = rgb
+        self._show_background()
+
+    def _background_chosen(self, index: int) -> None:
+        choice = self.background_box.itemData(index)
+        if choice != self.CUSTOM_BACKGROUND:
+            self.set_background(choice)
+            return
+        current = np.asarray(self.viewer.canvas.background_color, dtype=np.float64)[:3]
+        picked = QColorDialog.getColor(QColor.fromRgbF(*(float(c) for c in current)), self, "Canvas background")
+        if picked.isValid():
+            self.set_background((picked.redF(), picked.greenF(), picked.blueF()))
+        else:  # cancelled: the box shows the canvas as it is
+            self._show_background()
+
+    def _show_background(self) -> None:
+        """Select the item that names the canvas's colour (`custom…` for any other colour)."""
+        override = self.viewer.canvas.background_color_override
+        index = 0
+        if override is not None:
+            rgb = np.asarray(override, dtype=np.float64)[:3]
+            named = [i for i in range(1, self.background_box.count() - 1)
+                     if np.allclose(self.background_box.itemData(i), rgb)]
+            index = named[0] if named else self.background_box.count() - 1
+        self.background_box.blockSignals(True)
+        self.background_box.setCurrentIndex(index)
+        self.background_box.blockSignals(False)
 
     # -- cut -----------------------------------------------------------------------------------------
     def _show_cut_controls(self, on: bool) -> None:

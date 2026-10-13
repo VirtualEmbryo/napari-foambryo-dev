@@ -289,7 +289,7 @@ All names start with the mask layer's name, so several tissues can be open at on
 | `<mask> cells` | Surface | copy per cell side (each cell a closed surface) | the Labels layer's colour of each cell, so the mesh matches the labels |
 | `<mask> tensions` | Surface | copy per interface | `tension_colours` (`coolwarm`), centred on the mean tension; an undetermined interface not filled (alpha 0) |
 | `<mask> tensions (undetermined: outlines)` | Surface | the undetermined interfaces of the tensions' copy | transparent faces, a wireframe in `UNDETERMINED_COLOR` (green) |
-| `<mask> pressures` | Surface | copy per higher-labelled material of each triangle (as `foambryo view` draws its surface), or per cell side when exploded; crop faces left out | `pressure_colours` (reversed `magma`), the one pressure scale |
+| `<mask> pressures` | Surface | copy per higher-labelled material of each triangle (as `foambryo view` draws its surface), or per cell side when exploded; crop faces left out | `pressure_colours` (reversed `magma`, trimmed to 10-90 %), the one pressure scale |
 | `<mask> crop faces` | Surface | the crop faces only | glass: `CROP_FACE_COLOR` at `CROP_FACE_OPACITY` (in the vertex colours), a wireframe in `CROP_FACE_EDGE_COLOR` |
 | `<mask> highlight` | — | none: the selected interface or cell is shown by recolouring its copy, the others desaturated | — |
 
@@ -318,6 +318,11 @@ All names start with the mask layer's name, so several tissues can be open at on
   real window); the plane is given in each layer's data frame, so that it is one plane in the world. Clipping
   planes act in the 3-D view only.
 * Explode and cut combine; nothing is computed again.
+* **Background** (added 13 October 2026, the maintainer's request: some cells vanished on the black canvas): napari's
+  theme, black, dark grey, light grey, white (the library's `BACKGROUND_COLOURS`, the Polyscope window's choices) or
+  a custom colour from a colour dialog, set as `viewer.canvas.background_color_override` (napari 0.9.2's public
+  model, `MEASURED`: any RGB is accepted); the layers and their colours are not touched. `ViewWidget.set_background`
+  does the same from Python.
 
 ### 3.3 Memory cost of the display copies
 
@@ -369,8 +374,10 @@ The same scales as `foambryo view`, computed by the same functions:
 * tensions: `coolwarm` (blue for low, light grey for the mean, red for high), over a range centred on the mean of the
   finite tensions and symmetric around it, to the farther of the 5 % and 95 % quantiles (`tension_colour_range`),
   clipped (amended 12 October 2026, the maintainer's choice; until then `jet` between the two quantiles);
-* pressures: reversed `magma`, from 0 to the 95 % quantile of the finite pressures over the surface's triangles
-  (`surface_pressure_colour_upper`), the one pressure scale of the viewer's surface, graph view and bars;
+* pressures: reversed `magma` trimmed to its 10-90 % range (amended 13 October 2026, the maintainer's choice: the
+  whole map's black end vanished on napari's black canvas), from 0 to the 95 % quantile of the finite pressures over
+  the surface's triangles (`surface_pressure_colour_upper`), the one pressure scale of the viewer's surface, graph
+  view and bars;
 * `nan` (undetermined): a tension's interface is not filled and its own layer draws it as a green wireframe
   (`UNDETERMINED_COLOR`, #1b9e77, outside both maps on napari's black background); a cell's pressure is filled green;
 * crop faces: see-through glass with its edges drawn, never a value's colour (left out of the pressure layers).

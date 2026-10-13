@@ -14,6 +14,9 @@ Driven as a user would, on a `ViewerModel` under Qt's offscreen platform:
   `solves.csv` and `spectra.npz`; when the Infer dock's options changed after Infer, Export says so.
 * **Export's dialog** (the real `QMessageBox`, clicked by a timer): *Cancel* writes nothing; *Replace* replaces
   foambryo's files and leaves another file alone.
+* **Background**: the canvas takes the library's named colours (`BACKGROUND_COLOURS`, the Polyscope window's), a
+  custom colour from the dialog (unchanged when it is cancelled), or napari's theme again; the layers' colours never
+  change with it.
 """
 
 from __future__ import annotations
@@ -241,3 +244,41 @@ def test_export_asks_before_replacing_and_replaces_only_foambryos_files(qtbot, v
     assert (folder / "notes.txt").read_text() == "mine"
     assert all((folder / name).stat().st_mtime_ns >= before[name] for name in first)
     assert not hasattr(export, "overwrite")  # the check box is gone: the dialog asks
+
+
+def test_the_background_paints_the_canvas_only(qtbot, viewer, docks, monkeypatch):
+    from foambryo.colour_scales import BACKGROUND_COLOURS
+    from qtpy.QtGui import QColor
+    from qtpy.QtWidgets import QColorDialog
+
+    _reconstructed_and_inferred(qtbot, viewer, docks)
+    view = docks[-1]
+    surfaces = [layer for layer in viewer.layers if hasattr(layer, "vertex_colors")]
+    colours = [np.array(layer.vertex_colors, copy=True) for layer in surfaces]
+    assert [view.background_box.itemText(i) for i in range(view.background_box.count())] == [
+        "napari's theme",
+        "black",
+        "dark grey",
+        "light grey",
+        "white",
+        "custom…",
+    ]
+    for index, name in enumerate(BACKGROUND_COLOURS, start=1):
+        view.background_box.setCurrentIndex(index)
+        view.background_box.activated.emit(index)
+        assert np.allclose(viewer.canvas.background_color[:3], BACKGROUND_COLOURS[name], atol=1e-6)  # float32
+    custom = view.background_box.count() - 1
+    monkeypatch.setattr(QColorDialog, "getColor", lambda *_args: QColor.fromRgbF(0.1, 0.3, 0.5))
+    view.background_box.activated.emit(custom)
+    assert np.allclose(viewer.canvas.background_color[:3], (0.1, 0.3, 0.5), atol=1 / 255)
+    assert view.background_box.currentIndex() == custom
+    monkeypatch.setattr(QColorDialog, "getColor", lambda *_args: QColor())  # cancelled
+    view.set_background("white")
+    view.background_box.activated.emit(custom)
+    assert np.allclose(viewer.canvas.background_color[:3], BACKGROUND_COLOURS["white"], atol=1e-6)
+    assert view.background_box.currentText() == "white"
+    view.set_background(None)
+    assert viewer.canvas.background_color_override is None
+    assert view.background_box.currentText() == "napari's theme"
+    for layer, before in zip(surfaces, colours, strict=True):
+        assert np.array_equal(layer.vertex_colors, before)

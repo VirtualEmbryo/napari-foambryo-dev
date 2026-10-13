@@ -8,11 +8,11 @@ library's vertex and triangle behind each of its own, so that every displayed nu
 
 Colours are those of the Polyscope viewer, computed by `foambryo.colour_scales` on the same values: tensions in
 `coolwarm`, blue - light grey - red, over a range centred on the mean tension and symmetric around it (to the
-farther of the 5 % and 95 % quantiles); reversed `magma` from 0 to the 95 % quantile of the pressures over the
-surface's triangles. An undetermined tension (`nan`) is **not filled** (alpha 0): its interface is drawn as a green
-wireframe by its own layer (`undetermined_copy`); an undetermined pressure is filled with the library's
-`UNDETERMINED_COLOR`. Crop faces are never filled with a value's colour: they are left out of the pressure copies
-and drawn as glass by their own layer. No Qt and no napari here.
+farther of the 5 % and 95 % quantiles); reversed `magma`, trimmed to its 10-90 % range, from 0 to the 95 % quantile
+of the pressures over the surface's triangles. An undetermined tension (`nan`) is **not filled** (alpha 0): its
+interface is drawn as a green wireframe by its own layer (`undetermined_copy`); an undetermined pressure is filled
+with the library's `UNDETERMINED_COLOR`. Crop faces are never filled with a value's colour: they are left out of the
+pressure copies and drawn as glass by their own layer. No Qt and no napari here.
 
 **The exploded view** (the Polyscope viewer's "scattered" view) moves each cell away from the tissue's centre by the
 library's own displacement, `DcelData.compute_scattered_arrays(coeff)`: `coeff × (cell centroid − tissue centroid)`.

@@ -48,7 +48,9 @@ napari-foambryo needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with
 5. *Plugins › foambryo › Export*: choose a folder, click **Export**. If the folder already holds foambryo's files, a
    dialog lists them and asks before replacing them; other files are never touched.
 6. *Plugins › foambryo › View*: **Explode** moves the cells apart (each interface drawn on both cells' sides), **Cut**
-   clips everything with a plane normal to z, y or x, to see the interfaces inside the tissue (3-D view).
+   clips everything with a plane normal to z, y or x, to see the interfaces inside the tissue (3-D view), and
+   **Background** paints the canvas black, dark grey, light grey, white or a custom colour (a colour that one
+   background hides, another shows).
 
 The same, scripted: `python examples/quickstart.py`.
 
