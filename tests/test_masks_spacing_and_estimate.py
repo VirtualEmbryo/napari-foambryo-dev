@@ -105,3 +105,24 @@ def test_the_memory_guard_needs_run_anyway_only_beyond_the_machine():
 
 def test_a_tiny_estimate_does_not_read_zero_seconds():
     assert "0 s" not in estimate_text(estimate_reconstruction((10, 10, 10), (1.0, 1.0, 1.0)))
+
+
+@pytest.mark.parametrize("shape", [(10, 10, 10), (100, 100, 100), (110, 110, 110)], ids=["1e3", "1e6", "1.3e6"])
+def test_a_reconstruction_under_a_second_reads_under_1_s_once(shape):
+    text = estimate_text(estimate_reconstruction(shape, (1.0, 1.0, 1.0)))
+    assert text.startswith("under 1 s and "), text
+    assert "about under" not in text
+
+
+def test_a_seed_ensemble_is_worded_like_one_reconstruction():
+    from napari_foambryo._estimate import ensemble_estimate  # new in 0.7.0: imported here so older code collects
+
+    per_seed = estimate_reconstruction((100, 100, 100), (1.0, 1.0, 1.0))
+    ensemble = ensemble_estimate(per_seed, rounds=3, workers=2)
+    assert ensemble.seconds == tuple(3 * s for s in per_seed.seconds)
+    assert ensemble.peak_gib == tuple(2 * g for g in per_seed.peak_gib)
+    assert estimate_text(ensemble_estimate(estimate_reconstruction((10, 10, 10), (1.0, 1.0, 1.0)), 1, 1)) == (
+        "under 1 s and 3 MiB (2 MiB–4 MiB)"
+    )
+    large = ensemble_estimate(estimate_reconstruction((350, 350, 350), (1.0, 1.0, 1.0)), rounds=4, workers=2)
+    assert estimate_text(large).startswith("about ") and " min" in estimate_text(large)

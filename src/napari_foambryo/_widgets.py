@@ -46,7 +46,7 @@ from qtpy.QtWidgets import (
 )
 from superqt import QCollapsible
 
-from napari_foambryo._estimate import estimate_reconstruction, estimate_text, memory_verdict
+from napari_foambryo._estimate import ensemble_estimate, estimate_reconstruction, estimate_text, memory_verdict
 from napari_foambryo._layers import (
     RUNS,
     CutPlane,
@@ -746,9 +746,8 @@ class InferWidget(QWidget):
         memory = psutil.virtual_memory()
         suggested = max(1, int(memory.available / 2**30 // max(per_seed.peak_gib[2], 1e-9)))
         text = (
-            f"Estimate: {rounds} round(s) of {workers} seed(s): about {rounds * per_seed.seconds[1] / 60:.1f} min "
-            f"({rounds * per_seed.seconds[0] / 60:.1f}–{rounds * per_seed.seconds[2] / 60:.1f}) and "
-            f"{workers * per_seed.peak_gib[1]:.1f} GiB ({workers * per_seed.peak_gib[2]:.1f} at most); "
+            f"Estimate: {rounds} round(s) of {workers} seed(s): "
+            f"{estimate_text(ensemble_estimate(per_seed, rounds, workers))}; "
             f"{memory.available / 2**30:.0f} GiB free allows about {suggested} worker(s). "
             "The seed spread is a lower bound on the error, not an error bar."
         )

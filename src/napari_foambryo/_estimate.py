@@ -21,7 +21,14 @@ from foambryo.reconstruction_cost import (
     voxels_handed_to_dw3d,
 )
 
-__all__ = ["CostEstimate", "MemoryVerdict", "estimate_reconstruction", "memory_verdict", "voxels_handed_to_dw3d"]
+__all__ = [
+    "CostEstimate",
+    "MemoryVerdict",
+    "ensemble_estimate",
+    "estimate_reconstruction",
+    "memory_verdict",
+    "voxels_handed_to_dw3d",
+]
 
 GIB = 2**30
 
@@ -35,8 +42,25 @@ def estimate_reconstruction(shape: tuple[int, int, int], spacing: tuple[float, f
 
 
 def estimate_text(estimate: CostEstimate) -> str:
-    """For example *"about 13 min (8–20 min) and 39 GiB (26–59 GiB)"*."""
+    """For example *"about 13 min (8 min–20 min) and 39 GiB (26 GiB–58 GiB)"*.
+
+    A small mask reads *"under 1 s and 3 MiB (2 MiB–4 MiB)"*: foambryo's wording
+    (`ReconstructionCostEstimate.text`), with an en dash, says once a quantity whose band adds nothing.
+    """
     return estimate.text(dash="–")
+
+
+def ensemble_estimate(per_seed: CostEstimate, rounds: int, workers: int) -> CostEstimate:
+    """A seed ensemble's estimate: `rounds` reconstructions one after the other, `workers` at the same time.
+
+    The time is the per-seed estimate times the rounds, the peak memory the per-seed estimate times the workers (each
+    of low, central and high), so the ensemble is worded by `estimate_text` like one reconstruction.
+    """
+    return CostEstimate(
+        per_seed.voxels,
+        tuple(rounds * s for s in per_seed.seconds),
+        tuple(workers * g for g in per_seed.peak_gib),
+    )
 
 
 @dataclass(frozen=True)
