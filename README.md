@@ -8,8 +8,9 @@ In development (0.1.0.dev0); nothing is released yet. Licence: GPL-3.0-or-later.
 
 ![Tensions of benchmark case 000 in napari](docs/images/case_000_tensions.png)
 
-*Benchmark case 000 (6 cells): the tensions of its outer interfaces on the reconstructed mesh, the colour bars
-and the table, in which the true tensions of this simulated aggregate are shown beside the inferred ones.*
+*Benchmark case 000 (6 cells): the tensions of its outer interfaces on the reconstructed mesh (blue below the mean
+tension, grey at it, red above), the colour bars and the table, in which the true tensions of this simulated
+aggregate are shown beside the inferred ones. foambryo's Polyscope viewer shows the same colours for the same mesh.*
 
 ## What it does
 
@@ -33,11 +34,15 @@ bit for bit, and check that the exported files are byte for byte those of the co
 
 ## Installation
 
+napari-foambryo is not published yet. Once it is:
+
 ```bash
 pip install "napari[all]" napari-foambryo
 ```
 
-napari-foambryo needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with it), and Python 3.11 or later.
+Until then, install it from a clone of its repository, in a virtual environment: `pip install "napari[all]"` and
+`pip install ./napari-foambryo`. It needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with it), and Python
+3.11 or later.
 
 ## Quickstart
 
@@ -52,9 +57,8 @@ napari-foambryo needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with
    **Background** paints the canvas black, dark grey, light grey, white or a custom colour (a colour that one
    background hides, another shows).
 
-The same, scripted: `python examples/quickstart.py`.
-
-![The quickstart, step by step](docs/images/walk_through_case_000.gif)
+The same, scripted: `python examples/quickstart.py` (add `--close-when-done` to close napari once the numbers are
+printed).
 
 ## What the numbers mean
 
@@ -90,7 +94,8 @@ Reconstruct dock:
   box. Merge them into the background with napari's fill tool, then Reconstruct.
 
 The results are marked *out of date* if the labels change after the reconstruction, and Export waits for a new
-one. Example: `python examples/from_a_segmentation_plugin.py`.
+one. Example: `python examples/from_a_segmentation_plugin.py` (with `--close-when-done`, it clicks Reconstruct and
+Infer itself and closes napari).
 
 ![A membrane segmentation plugin's labels, with the mask report](docs/images/from_a_segmentation_plugin.png)
 
