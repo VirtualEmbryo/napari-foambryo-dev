@@ -4,7 +4,10 @@ Opens napari with the plugin's docks and the sample *benchmark case 000*, then c
 (the same buttons you would click), and prints the median error against the case's true tensions. Needs a display.
 
     python examples/quickstart.py
+    python examples/quickstart.py --close-when-done     # closes napari once the numbers are printed
 """
+
+import sys
 
 import napari
 from qtpy.QtCore import QTimer
@@ -36,6 +39,8 @@ def main() -> None:
             return
         print(infer.status.text())
         print(results.summary.text())
+        if "--close-when-done" in sys.argv:
+            viewer.close()
 
     reconstruct.start()  # the Reconstruct button
     QTimer.singleShot(500, after_reconstruct)
