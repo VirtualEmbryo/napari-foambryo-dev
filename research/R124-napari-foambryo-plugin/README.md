@@ -3,6 +3,11 @@
 Phase A (the specification) and phase B (the build, overnight 11–12 October 2026). Phase B's record is
 `REPORT.md`, `HANDOFF.md` and `phase_b_decision_log.md`; the plugin's code is on `feature/first-version`.
 
+**The specification** is `SPECIFICATION.md` here, with its two figures in `figures/specification/`: the version of
+`feature/first-version` at cdefce1 (16 Oct 2026), moved out of that branch's `docs/` because it is an internal
+design record (approvals, decision log, evidence labels). The branch now has a short user page instead,
+`docs/how-it-works.md`. The older `docs/SPECIFICATION.md` of this branch is phase A's version.
+
 ## Question
 
 What should a napari plugin over delaunay-watershed-3d and foambryo do, and how can it give exactly the numbers of
