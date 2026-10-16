@@ -4,7 +4,8 @@ A napari plugin over delaunay-watershed-3d and foambryo: reconstruct the multima
 segmentation, infer its relative surface tensions and cell pressures, show them on the tissue, and export the
 same files as the `foambryo` command.
 
-In development (0.1.0.dev0); nothing is released yet. Licence: GPL-3.0-or-later.
+Version 0.1.0, the first release (17 October 2026). Licence: GPL-3.0-or-later. What changed: the
+[CHANGELOG](https://github.com/VirtualEmbryo/napari-foambryo/blob/v0.1.0/CHANGELOG.md).
 
 ![Tensions of benchmark case 000 in napari](https://raw.githubusercontent.com/VirtualEmbryo/napari-foambryo/v0.1.0/docs/images/case_000_tensions.png)
 
@@ -34,14 +35,13 @@ bit for bit, and check that the exported files are byte for byte those of the co
 
 ## Installation
 
-napari-foambryo is not published yet. Once it is:
+In a virtual environment:
 
 ```bash
 pip install "napari[all]" napari-foambryo
 ```
 
-Until then, install it from a clone of its repository, in a virtual environment: `pip install "napari[all]"` and
-`pip install ./napari-foambryo`. It needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with it), and Python
+It needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with it), and Python
 3.11 or later.
 
 ## Quickstart

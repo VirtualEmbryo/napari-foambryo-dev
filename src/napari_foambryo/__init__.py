@@ -6,4 +6,4 @@ the two libraries returns for the same inputs, the same functions the `foambryo`
 scientific of its own. How it works, dock by dock: `docs/how-it-works.md`.
 """
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0"

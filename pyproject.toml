@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "napari-foambryo"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Surface tensions and cell pressures of a 3-D segmentation, in napari: delaunay-watershed-3d and foambryo"
 readme = "README.md"
 license = "GPL-3.0-or-later"

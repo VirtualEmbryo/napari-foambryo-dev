@@ -6,7 +6,8 @@ abstract: "Surface tensions and cell pressures of a 3-D segmentation, in napari:
 authors:
   - given-names: Hervé
     family-names: Turlier
-version: 0.1.0.dev0
+version: 0.1.0
+date-released: 2026-10-17
 license: GPL-3.0-or-later
 preferred-citation:
   type: article
