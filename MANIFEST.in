@@ -1,4 +1,8 @@
-# The source distribution carries the test suite whole: the tests, their conftest and helpers.
+# The source distribution carries the test suite whole, with what it reads: the tests, their conftest and
+# helpers, the changelog, the user documentation (docs/, how-it-works.md and its images) and the examples.
 # The benchmarking dataset is not shipped: the tests that need it skip.
+include CHANGELOG.md
+graft docs
+graft examples
 graft tests
 global-exclude __pycache__/* *.py[cod] .DS_Store
