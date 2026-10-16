@@ -57,6 +57,11 @@ It needs delaunay-watershed-3d 0.7 and foambryo 0.7 (installed with it), and Pyt
    **Background** paints the canvas black, dark grey, light grey, white or a custom colour (a colour that one
    background hides, another shows).
 
+![The quickstart in napari, from the sample to the exported files](https://raw.githubusercontent.com/VirtualEmbryo/napari-foambryo/v0.1.0/docs/images/walk_through_case_000.gif)
+
+*The quickstart on benchmark case 000, the whole napari window: the sample, Reconstruct, Infer (the tensions, then
+the colour bars and the table in Results), the pressures, View's explode slider, and Export.*
+
 The same, scripted: `python examples/quickstart.py` (add `--close-when-done` to close napari once the numbers are
 printed).
 
