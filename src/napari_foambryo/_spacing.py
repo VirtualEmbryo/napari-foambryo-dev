@@ -2,7 +2,7 @@
 
 * *This layer*: the layer's `scale` (napari's (z, y, x) order, dw3d's), with its unit when napari records one, else
   `um` (the command's fallback). A sample's metadata states its voxel size and unit. napari's own default scale
-  (1, 1, 1) without a unit means *unknown*: Run waits for an explicit confirmation of voxel units (decision Q3).
+  (1, 1, 1) without a unit means *unknown*: Run waits for an explicit confirmation of voxel units.
 * *Another layer* (typically the image that was segmented): the same, read from that layer, which must have the
   labels' 3-D shape.
 * *Typed*: three numbers > 0 and a unit.

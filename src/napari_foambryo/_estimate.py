@@ -6,7 +6,7 @@ voxels), fitted to measured reconstructions. Each estimate is a central value an
 between an anchor and the fit, **not** a validated prediction interval. Time and memory also depend on the number of
 cells and the tissue's shape, and the anchors come from one machine. No constant is kept here.
 
-The memory guard compares the band with the machine's memory (decision Q8): within what is free, the estimate is
+The memory guard compares the band with the machine's memory: within what is free, the estimate is
 shown plainly; above what is free but with the central value within the machine, an amber warning; when the
 central value exceeds the machine's memory, Run needs *run anyway* to be ticked.
 """
@@ -79,7 +79,7 @@ class MemoryVerdict:
 
 
 def memory_verdict(estimate: CostEstimate, total_bytes: int, available_bytes: int) -> MemoryVerdict:
-    """Compare the estimate with the machine's memory (decision Q8)."""
+    """Compare the estimate with the machine's memory."""
     total, available = total_bytes / GIB, available_bytes / GIB
     _, central, high = estimate.peak_gib
     if high <= available:

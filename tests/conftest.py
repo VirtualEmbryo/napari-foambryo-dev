@@ -1,8 +1,8 @@
 """Shared fixtures: headless Qt, napari's settings kept out of the user's folder, the samples reconstructed once.
 
-Tiers (docs/SPECIFICATION.md § 8): T1 needs no Qt; T2 uses `napari.components.ViewerModel` (no canvas); T3 drives
-the widgets with pytest-qt on a `ViewerModel` under Qt's offscreen platform. T4 (a real viewer window, OpenGL) is
-marked `opengl` and skipped unless `NAPARI_FOAMBRYO_OPENGL=1`.
+The tests are of three kinds, named in their docstrings: T1 needs no Qt; T2 uses `napari.components.ViewerModel` (no
+canvas); T3 drives the widgets with pytest-qt on a `ViewerModel` under Qt's offscreen platform. A test that needs a
+real viewer window (an OpenGL context) is marked `opengl` and skipped unless `NAPARI_FOAMBRYO_OPENGL=1`.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def _napari_settings_in_a_temporary_folder(tmp_path_factory: pytest.TempPathFact
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if os.environ.get("NAPARI_FOAMBRYO_OPENGL") == "1":
         return
-    skip = pytest.mark.skip(reason="tier T4 needs an OpenGL context: set NAPARI_FOAMBRYO_OPENGL=1 with a display")
+    skip = pytest.mark.skip(reason="needs an OpenGL context: set NAPARI_FOAMBRYO_OPENGL=1 with a display")
     for item in items:
         if "opengl" in item.keywords:
             item.add_marker(skip)

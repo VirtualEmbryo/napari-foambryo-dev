@@ -49,7 +49,7 @@ napari_foambryo = ["napari.yaml", "sample_data/*.npz"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-  "opengl: needs an OpenGL context (a real napari viewer window); tier T4",
+  "opengl: needs an OpenGL context (a real napari viewer window)",
   "dataset: needs the benchmarking dataset beside the repository",
 ]
 

@@ -129,4 +129,4 @@ large tissues.
 ## Licence
 
 GNU General Public License, version 3 or (at your option) any later version (`GPL-3.0-or-later`); the text is in
-`LICENSE`. The specification of the plugin is `docs/SPECIFICATION.md`.
+`LICENSE`. How the plugin works, dock by dock: [docs/how-it-works.md](docs/how-it-works.md).

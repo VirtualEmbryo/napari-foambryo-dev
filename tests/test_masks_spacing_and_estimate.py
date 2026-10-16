@@ -1,7 +1,7 @@
 """Tier T1: what is accepted as a mask, which spacing is used, and the estimate before a run.
 
 The estimate's gate (G9) is here in its first form: the fit reproduces its own anchors within its stated band, and
-the memory guard's three levels fall where decision Q8 puts them.
+the memory guard's three levels fall where `memory_verdict` says they do.
 """
 
 from __future__ import annotations

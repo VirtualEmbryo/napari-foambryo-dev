@@ -377,7 +377,7 @@ def add_ensemble_layer(
 ) -> str:
     """Show a seed ensemble's tensions on the run's own mesh (the reconstruction's default seed, 42).
 
-    The ensemble has no mesh of its own (decision Q4): its tensions are matched to the displayed mesh by label
+    The ensemble has no mesh of its own: its tensions are matched to the displayed mesh by label
     pair; an interface of the mesh that the ensemble did not determine is drawn as undetermined (no fill, a green
     wireframe); an ensemble interface absent from the mesh is only in the table. The colours are the viewer's tension
     scale over the ensemble's tensions. `prepared` is `prepare_ensemble_layers`' result when computed already.
