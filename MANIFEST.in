@@ -1,0 +1,4 @@
+# The source distribution carries the test suite whole: the tests, their conftest and helpers.
+# The benchmarking dataset is not shipped: the tests that need it skip.
+graft tests
+global-exclude __pycache__/* *.py[cod] .DS_Store

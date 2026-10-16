@@ -30,9 +30,17 @@ dependencies = [
   "numpy",
   "matplotlib",
   "psutil",
-  "delaunay-watershed-3d>=0.7",
-  "foambryo[cli]>=0.7",
+  "delaunay-watershed-3d>=0.7.0",
+  "foambryo[cli]>=0.7.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/VirtualEmbryo/napari-foambryo"
+Source = "https://github.com/VirtualEmbryo/napari-foambryo"
+Issues = "https://github.com/VirtualEmbryo/napari-foambryo/issues"
+Documentation = "https://github.com/VirtualEmbryo/napari-foambryo/blob/main/docs/how-it-works.md"
+Changelog = "https://github.com/VirtualEmbryo/napari-foambryo/blob/main/CHANGELOG.md"
+"Team website" = "https://www.turlierlab.com/"
 
 [project.optional-dependencies]
 testing = ["pytest", "pytest-qt", "dask[array]"]

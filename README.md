@@ -6,7 +6,7 @@ same files as the `foambryo` command.
 
 In development (0.1.0.dev0); nothing is released yet. Licence: GPL-3.0-or-later.
 
-![Tensions of benchmark case 000 in napari](docs/images/case_000_tensions.png)
+![Tensions of benchmark case 000 in napari](https://raw.githubusercontent.com/VirtualEmbryo/napari-foambryo/v0.1.0/docs/images/case_000_tensions.png)
 
 *Benchmark case 000 (6 cells): the tensions of its outer interfaces on the reconstructed mesh (blue below the mean
 tension, grey at it, red above), the colour bars and the table, in which the true tensions of this simulated
@@ -97,7 +97,7 @@ The results are marked *out of date* if the labels change after the reconstructi
 one. Example: `python examples/from_a_segmentation_plugin.py` (with `--close-when-done`, it clicks Reconstruct and
 Infer itself and closes napari).
 
-![A membrane segmentation plugin's labels, with the mask report](docs/images/from_a_segmentation_plugin.png)
+![A membrane segmentation plugin's labels, with the mask report](https://raw.githubusercontent.com/VirtualEmbryo/napari-foambryo/v0.1.0/docs/images/from_a_segmentation_plugin.png)
 
 ## Reproducing a result without napari
 
@@ -129,4 +129,5 @@ large tissues.
 ## Licence
 
 GNU General Public License, version 3 or (at your option) any later version (`GPL-3.0-or-later`); the text is in
-`LICENSE`. How the plugin works, dock by dock: [docs/how-it-works.md](docs/how-it-works.md).
+`LICENSE`. How the plugin works, dock by dock:
+[docs/how-it-works.md](https://github.com/VirtualEmbryo/napari-foambryo/blob/v0.1.0/docs/how-it-works.md).
