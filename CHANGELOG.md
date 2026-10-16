@@ -2,6 +2,10 @@
 
 User-facing changes only.
 
+## Unreleased (planned for 0.1.1)
+
+Nothing yet.
+
 ## 0.1.0 — 2026-10-17
 
 The first release of napari-foambryo, a napari plugin over delaunay-watershed-3d 0.7.0 and foambryo 0.7.0, released with them.
