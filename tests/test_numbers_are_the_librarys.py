@@ -1,9 +1,9 @@
-"""Gates G1–G3 (tier T1): the plugin's runner gives bitwise the library's mesh and numbers.
+"""Tier T1: the plugin's runner gives bitwise the library's mesh and numbers.
 
 The plugin reconstructs in a child process and infers in a worker thread; these tests run the same runner and
 compare, by the bytes of the arrays and of every float, with the library called directly in this process:
-`dcel_mesh_from_segmentation_mask(mask, spacing=...)` then `infer_forces`. Cubic voxels (G1), anisotropic voxels
-(G2), a tissue cut by the image box (G3), for every tension method and every pressure method the library accepts on
+`dcel_mesh_from_segmentation_mask(mask, spacing=...)` then `infer_forces`. Cubic voxels, anisotropic voxels,
+a tissue cut by the image box, for every tension method and every pressure method the library accepts on
 that mesh; the library's refusals are reported with the command's status.
 """
 

@@ -1,4 +1,4 @@
-"""Gate G11 (tier T3): a Labels layer as another segmentation plugin leaves it gives the library's numbers.
+"""Tier T3: a Labels layer as another segmentation plugin leaves it gives the library's numbers.
 
 The fixture imitates such a layer: `uint16`, labels not consecutive, the background labelled 1, no scale on the
 labels (napari's default) but one on the image layer it was segmented from, a leading axis of length 1, held as a

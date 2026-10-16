@@ -1,9 +1,9 @@
-"""The child-process runner (Cancel, refusals, progress) and seed ensembles: gates G4 and G5 (tier T1).
+"""The child-process runner (Cancel, refusals, progress) and seed ensembles (tier T1).
 
 * Cancel stops the child **and the processes it started** (a seed ensemble's workers), and returns nothing.
 * A refusal in the child arrives as `ChildFailedError` with the library's message; progress calls arrive in order.
-* G4: a seed ensemble run by the plugin's runner is bitwise the library's, with 1 and 2 workers.
-* G5: on a cropped case of benchmark size (case 000 cut by the image box), the in-memory mesh and the `.rec`
+* a seed ensemble run by the plugin's runner is bitwise the library's, with 1 and 2 workers.
+* on a cropped case of benchmark size (case 000 cut by the image box), the in-memory mesh and the `.rec`
   route (crop faces written as the last rows, `foambryo infer`'s reading) give bitwise the same numbers.
 * The ensemble's export is byte for byte `foambryo infer-over-seeds`' tables.
 """

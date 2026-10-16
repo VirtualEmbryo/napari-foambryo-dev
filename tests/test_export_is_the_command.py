@@ -1,4 +1,4 @@
-"""Gate G6 (tier T1): Export writes the `foambryo` command's own files.
+"""Tier T1: Export writes the `foambryo` command's own files.
 
 * `mesh.rec` is byte for byte what `foambryo mesh` writes from the exported `mask.npz`;
 * `foambryo infer mesh.rec` writes `tensions.csv` and `pressures.csv` byte for byte as exported;

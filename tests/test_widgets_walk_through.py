@@ -1,8 +1,8 @@
-"""Tiers T2 and T3: the dock widgets on a `ViewerModel` (no canvas), driven as a user would, and gate G10.
+"""Tiers T2 and T3: the dock widgets on a `ViewerModel` (no canvas), driven as a user would, and the widgets' defaults.
 
 A walk per sample: choose the Labels layer, Reconstruct (child process), Infer, read the tables, select a row,
-Export. The layers are checked on the model (T2); the numbers shown are the library's (the gates check them in T1).
-G10: every widget default equals the library signature's default.
+Export. The layers are checked on the model (T2); the numbers shown are the library's (the T1 tests check them).
+Every widget default equals the library signature's default.
 """
 
 from __future__ import annotations

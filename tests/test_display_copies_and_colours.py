@@ -1,9 +1,9 @@
-"""Gates G7 and G8 (tier T1): the display copies map back exactly, and their colours are the library's.
+"""Tier T1: the display copies map back exactly, and their colours are the library's.
 
-* G8: every copied vertex is bitwise the library's vertex it comes from; every copied triangle has the library
+* every copied vertex is bitwise the library's vertex it comes from; every copied triangle has the library
   triangle's vertices, group by group; crop faces are only in their own copy; a mesh in physical units lands on
   its Labels layer's voxels through the layer frame (`scale = layer scale / spacing`, `translate`).
-* G7: each vertex's colour is `foambryo.colour_scales`' colour of its value, on the range of
+* each vertex's colour is `foambryo.colour_scales`' colour of its value, on the range of
   `colour_bar_ranges` (the colour bars' ends).
 """
 

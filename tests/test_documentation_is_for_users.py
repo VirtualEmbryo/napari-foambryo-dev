@@ -2,7 +2,8 @@
 
 Up to 0.1.0.dev0 the README and the package docstring pointed to `docs/SPECIFICATION.md`, the plugin's internal
 design record (approvals, decision log, evidence labels), and comments cited its decisions as "(decision Qn)". The
-record moved to the plugin's research branch; `docs/how-it-works.md` says what each dock does instead.
+record moved to the plugin's research branch; `docs/how-it-works.md` says what each dock does instead. The tests,
+which the source distribution ships, no longer cite that record's acceptance gates ("gate G6") either.
 """
 
 from __future__ import annotations
@@ -17,13 +18,15 @@ PUBLIC = sorted(
     [
         REPOSITORY / "README.md",
         REPOSITORY / "pyproject.toml",
+        REPOSITORY / "CHANGELOG.md",
         *(REPOSITORY / "docs").rglob("*.md"),
         *(REPOSITORY / "src").rglob("*.py"),
         *(REPOSITORY / "src").rglob("*.yaml"),
         *(REPOSITORY / "examples").rglob("*.py"),
+        *(path for path in (REPOSITORY / "tests").rglob("*.py") if path.name != Path(__file__).name),
     ],
 )
-LABELS = re.compile(r"decision Q\d|tier T4|SPECIFICATION\.md")
+LABELS = re.compile(r"decision Q\d|tier T4|SPECIFICATION\.md|\b[Gg]ates? \(?G\d|\bG\d{1,2}[:)]")
 LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
 
 
