@@ -1,9 +1,6 @@
 # How napari-foambryo works
 
-napari-foambryo adds five docks to napari, under *Plugins › foambryo*, plus a reader, a writer and sample data. The
-plugin computes nothing scientific of its own: each dock calls a public function of delaunay-watershed-3d (dw3d) or
-foambryo, the same function the `foambryo` command calls, with the same defaults. A result of the plugin is
-therefore the result of the command for the same mask and options.
+napari-foambryo adds five docks to napari, under *Plugins › foambryo*, plus a reader, a writer and sample data. The plugin computes nothing scientific of its own: each dock calls a public function of delaunay-watershed-3d (dw3d) or foambryo, the same function the `foambryo` command calls, with the same defaults. A result of the plugin is therefore the result of the command for the same mask and options.
 
 ## The docks
 
@@ -15,36 +12,20 @@ therefore the result of the command for the same mask and options.
 | **View** | Explodes the cells apart, cuts the tissue with a plane normal to z, y or x, and sets the canvas's background. Nothing is computed again. | `DcelData.compute_scattered_arrays` (the displacement of the Polyscope viewer's scattered view); napari's clipping planes; `foambryo.colour_scales.BACKGROUND_COLOURS` |
 | **Export** | Writes the files of the `foambryo` command into a folder, with the command lines that rebuild them. | the writers of `foambryo.results`; `foambryo.colour_scales.save_colour_bars` |
 
-The reader opens a `.rec` or `.arec` mesh file (`foambryo.dcel_mesh_from_file`); the writer saves a mesh layer as
-`.rec` (*File › Save Layer*). The sample data are benchmark case 000 (6 cells, with its true tensions) and three
-small generated foams (cubic voxels, voxels twice as long along z, and a foam cut by the image box). In the layer
-list, a Labels layer's right-click menu offers *Reconstruct with foambryo*, which opens Reconstruct on that layer.
+The reader opens a `.rec` or `.arec` mesh file (`foambryo.dcel_mesh_from_file`); the writer saves a mesh layer as `.rec` (*File › Save Layer*). The sample data are benchmark case 000 (6 cells, with its true tensions) and three small generated foams (cubic voxels, voxels twice as long along z, and a foam cut by the image box). In the layer list, a Labels layer's right-click menu offers *Reconstruct with foambryo*, which opens Reconstruct on that layer.
 
 ## Where the work runs
 
-A reconstruction, an inference and a seed ensemble each run in a separate process, so that napari stays
-responsive and **Cancel** stops the run at once and frees its memory. A cancelled or failed run adds nothing. The
-estimate shown before a run is foambryo's own, a fit to measured reconstructions, not a guarantee: when it exceeds
-the machine's memory, Reconstruct asks you to tick *run anyway*, or to run `foambryo mesh` on a larger machine and
-open the `.rec` file here.
+A reconstruction, an inference and a seed ensemble each run in a separate process, so that napari stays responsive and **Cancel** stops the run at once and frees its memory. A cancelled or failed run adds nothing. The estimate shown before a run is foambryo's own, a fit to measured reconstructions, not a guarantee: when it exceeds the machine's memory, Reconstruct asks you to tick *run anyway*, or to run `foambryo mesh` on a larger machine and open the `.rec` file here.
 
 ## Where the results go
 
-* **Into napari**, as layers: the mesh over the Labels layer, the tensions (one colour per interface), the
-  pressures (one colour per cell), and, when they exist, the undetermined tensions (green outlines) and the crop
-  faces (see-through glass). Each layer is placed exactly on the voxels of its Labels layer.
+* **Into napari**, as layers: the mesh over the Labels layer, the tensions (one colour per interface), the pressures (one colour per cell), and, when they exist, the undetermined tensions (green outlines) and the crop faces (see-through glass). Each layer is placed exactly on the voxels of its Labels layer.
 * **Into the Results dock**: the tables, which *Export CSV* writes one at a time.
-* **Into a folder, only when you click Export**: `mesh.rec`, `tensions.csv`, `pressures.csv`, `colour_bars.png` and
-  `run.json` (with diagnostics, `solves.csv` and `spectra.npz`; for a seed ensemble, a `seed-ensemble/` folder; on
-  request, `mask.npz`). They are the files the `foambryo` command writes for the same mask and options, and
-  `run.json` lists the command lines that rebuild them. A folder that already holds such files is not changed
-  without your confirmation, and no other file in it is ever touched.
+* **Into a folder, only when you click Export**: `mesh.rec`, `tensions.csv`, `pressures.csv`, `colour_bars.png` and `run.json` (with diagnostics, `solves.csv` and `spectra.npz`; for a seed ensemble, a `seed-ensemble/` folder; on request, `mask.npz`). They are the files the `foambryo` command writes for the same mask and options, and `run.json` lists the command lines that rebuild them. A folder that already holds such files is not changed without your confirmation, and no other file in it is ever touched.
 
 Nothing else is written: the plugin keeps its runs in memory until napari is closed.
 
 ## What it leaves out
 
-The plugin offers what the `foambryo` command offers, no more: not the reconstruction seed (use a seed ensemble),
-the faces of the image box where the tissue really ends, the resampling method, the angle reading of a single mesh,
-the wedge refusal or the error bars of `foambryo.infer_tensions_with_uncertainty`. Use foambryo from Python for
-those.
+The plugin offers what the `foambryo` command offers, no more: not the reconstruction seed (use a seed ensemble), the faces of the image box where the tissue really ends, the resampling method, the angle reading of a single mesh, the wedge refusal or the error bars of `foambryo.infer_tensions_with_uncertainty`. Use foambryo from Python for those.
