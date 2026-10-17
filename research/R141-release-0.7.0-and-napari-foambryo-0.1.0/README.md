@@ -10,3 +10,9 @@ links pinned to `v0.1.0`, a CHANGELOG, a new walk-through GIF, the tests' docstr
 labels, the source distribution carrying the test suite whole, version 0.1.0; and `after-release-0.1.0` (`3b1376b`),
 `## Unreleased (planned for 0.1.1)`. The public snapshot `public/0.1.0` (`1cd25a3`, a first commit without parent)
 is local, not pushed; the public repository `VirtualEmbryo/napari-foambryo` is still empty.
+
+**Updated 17 Oct by R143 (dependency floors users can install).** One commit on `release/0.1.0`, now `bcec920`:
+`numpy>=2.0.0` and `matplotlib>=3.8.4` (they had no minimum); `napari>=0.9` stays, since napari 0.8.0 lacks
+`viewer.canvas`, which the plugin uses (14 errors in its suite). The suite passes (160) with napari 0.9.0, numpy
+2.0.0, scipy 1.14.0 and the libraries at their minimums. `after-release-0.1.0` rebased onto it (`451f672`); public
+snapshot rehearsed as `3aeb9d4`. Versions tried and gates: the foambryo record, § 8.
