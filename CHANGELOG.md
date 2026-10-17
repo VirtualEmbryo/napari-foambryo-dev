@@ -25,6 +25,8 @@ with them.
 - A reader and a writer for `.rec` meshes, and sample data: benchmark case 000 (6 cells, with its true tensions) and
   three small generated foams.
 - Requires Python 3.11 or later, napari 0.9 or later, delaunay-watershed-3d 0.7.0 and foambryo 0.7.0 or later.
+- **Dependencies**: the minimum versions are the oldest with which the test suite passes: napari 0.9 (0.8 lacks a
+  call the plugin makes), numpy 2.0.0 and matplotlib 3.8.4.
 
 Recent work on dw3d and foambryo is part of a collaboration with Alejandro Aguilera Castrejon
 (Janelia Research Campus, Howard Hughes Medical Institute). We thank him and his Janelia colleagues
